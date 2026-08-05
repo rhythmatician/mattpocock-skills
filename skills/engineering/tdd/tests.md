@@ -1,77 +1,89 @@
 # Good and Bad Tests
 
-## Good Tests
+## Good tests
 
-**Integration-style**: Test through real interfaces, not mocks of internal parts.
+**Behavior-focused**: test through the public seam that matters to a caller.
 
-```typescript
-// GOOD: Tests observable behavior
-test("user can checkout with valid cart", async () => {
-  const cart = createCart();
-  cart.add(product);
-  const result = await checkout(cart, paymentMethod);
-  expect(result.status).toBe("confirmed");
-});
+```python
+def test_user_can_register_and_be_retrieved():
+    user = create_user(name="Alice", email="alice@example.com")
+    retrieved = get_user(user.id)
+
+    assert retrieved.email == "alice@example.com"
 ```
 
 Characteristics:
 
-- Tests behavior users/callers care about
-- Uses public API only
-- Survives internal refactors
-- Describes WHAT, not HOW
-- One logical assertion per test
+- tests behavior a caller cares about
+- uses the public interface
+- survives internal refactors
+- describes what the system does, not how it does it
+- keeps each test focused on one behavior
 
-## Bad Tests
+## Bad tests: implementation-coupled
 
-**Implementation-detail tests**: Coupled to internal structure.
+```python
+def test_create_user_calls_repo_save_once(mocker):
+    repo = mocker.Mock()
+    service = UserService(repo)
 
-```typescript
-// BAD: Tests implementation details
-test("checkout calls paymentService.process", async () => {
-  const mockPayment = jest.mock(paymentService);
-  await checkout(cart, payment);
-  expect(mockPayment.process).toHaveBeenCalledWith(cart.total);
-});
+    service.create_user("Alice")
+
+    repo.save.assert_called_once()
 ```
+
+This is weak because it asserts on an internal interaction rather than the real outcome. A user cares that the account exists and can be retrieved later, not that one method was called.
 
 Red flags:
 
-- Mocking internal collaborators
-- Testing private methods
-- Asserting on call counts/order
-- Test breaks when refactoring without behavior change
-- Test name describes HOW not WHAT
-- Verifying through external means instead of interface
+- mocking internal collaborators
+- testing private methods
+- asserting on call counts or call order
+- making the test break after a harmless refactor
+- naming the test around implementation instead of behavior
 
-```typescript
-// BAD: Bypasses interface to verify
-test("createUser saves to database", async () => {
-  await createUser({ name: "Alice" });
-  const row = await db.query("SELECT * FROM users WHERE name = ?", ["Alice"]);
-  expect(row).toBeDefined();
-});
+## Bad tests: tautological
 
-// GOOD: Verifies through interface
-test("createUser makes user retrievable", async () => {
-  const user = await createUser({ name: "Alice" });
-  const retrieved = await getUser(user.id);
-  expect(retrieved.name).toBe("Alice");
-});
+```python
+def test_calculate_total_sums_line_items():
+    items = [{"price": 10}, {"price": 5}]
+    expected = sum(item["price"] for item in items)
+
+    assert calculate_total(items) == expected
 ```
 
-**Tautological tests**: Expected value restates the implementation, so the test passes by construction.
+This passes by construction because the expected value reproduces the implementation.
 
-```typescript
-// BAD: Expected value is recomputed the way the code computes it
-test("calculateTotal sums line items", () => {
-  const items = [{ price: 10 }, { price: 5 }];
-  const expected = items.reduce((sum, i) => sum + i.price, 0);
-  expect(calculateTotal(items)).toBe(expected);
-});
+A better version uses an independent, known literal:
 
-// GOOD: Expected value is an independent, known literal
-test("calculateTotal sums line items", () => {
-  expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
-});
+```python
+def test_calculate_total_sums_line_items():
+    assert calculate_total([{"price": 10}, {"price": 5}]) == 15
 ```
+
+## Good negative or boundary tests
+
+```python
+import pytest
+
+
+def test_duplicate_email_is_rejected():
+    create_user(name="Alice", email="same@example.com")
+
+    with pytest.raises(DuplicateEmailError):
+        create_user(name="Bob", email="same@example.com")
+```
+
+This is often more valuable than asserting on repository internals or log messages because it protects the business rule directly.
+
+## When the test is hard to write
+
+If a test needs a pile of mocks, monkeypatches, or a real database just to exercise a tiny rule, treat that as design feedback. The code may be mixing responsibilities or hiding too much state.
+
+A better shape is often:
+
+- keep the transport layer thin,
+- put the rule in a service or domain layer,
+- inject the dependency that would otherwise be hidden.
+
+That usually makes the behavior easier to test and the code easier to reason about.
