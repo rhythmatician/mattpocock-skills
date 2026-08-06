@@ -108,6 +108,20 @@ Out-of-scope work never graduates (the frontier stops at the destination), so it
 
 Ruling something out of scope is a scoping act, not a step on the route. When a ticket that already exists turns out to sit past the destination (mis-scoped in while charting, or exposed by a resolution), **close it** (a closed ticket is unambiguously off the frontier) and leave one line in the **Out of scope** section: the gist plus why it's out of scope, linking the closed ticket. It stays out of **Decisions so far**, which records the route actually walked; a scope boundary isn't a step on it.
 
+## Schedule futures checkpoints
+
+Wayfinder is the **futures scheduler**. While charting or updating a large map, look for strategic optionality pressure points: boundaries where a decision or completed region is likely to narrow an important interface, entrench cross-module coupling, commit broadly to one representation, or otherwise make a concrete future materially harder to recover.
+
+Pay particular attention before downstream fan-out: if many later tickets will inherit an architectural choice, prefer checking the choice before they do.
+
+When the repository defines known futures, consult them at low resolution when placing checkpoints. They are context for the checkpoint, not requirements for ordinary tickets; do not propagate detailed future context into unrelated worker sessions.
+
+Schedule `/preserve-futures` only when the visible plan supplies evidence for a checkpoint. Do not schedule by cadence or after every ticket.
+
+When a checkpoint needs to gate downstream work, represent it as an AFK `Task` child issue and use the tracker's normal blocking relationship so the protected work remains blocked until the checkpoint resolves.
+
+Wayfinder does not perform the analysis itself. `/preserve-futures` owns the checkpoint assessment, future-observation capture, and any resulting handoffs.
+
 ## Invocation
 
 Two modes. Either way, **never resolve more than one ticket per session**, with the exception of research tickets.
@@ -120,7 +134,7 @@ User invokes with a loose idea.
 2. **Map the frontier.** Grill again, **breadth-first** this time: fan out across the whole space rather than deep on any one thread, surfacing the open decisions and the first steps takeable now. **If this surfaces no fog** (the way to the destination is already clear, the whole journey small enough for one session), you don't need a map. Stop and ask the user how they'd like to proceed.
 3. **Create the map** (label `wayfinder:map`): Destination and Notes filled in, Decisions-so-far empty, the fog sketched into **Not yet specified**.
 4. **Create the tickets you can specify now** as child issues of the map, then wire blocking edges in a **second pass** (issues need ids before they can reference each other). Wiring sorts them into the frontier and the blocked; everything you can't yet specify stays in the fog: the **Not yet specified** section.
-5. **Fire the research subagents.** For each `research` ticket you just created, spin up a subagent that calls the Skill tool with "research" to resolve it in parallel, capturing its findings on a throwaway `research/<name>` branch with a context pointer from the ticket.
+5. **Fire the research subagents.** For each `research` ticket you just created, spin up a `/research` subagent to resolve it in parallel, capturing its findings on a throwaway `research/<name>` branch with a context pointer from the ticket.
 6. Stop: charting is one session's work; it hand-resolves nothing.
 
 ### Work through the map
@@ -132,5 +146,6 @@ User invokes with a map (URL or number). A ticket is **optional**: without one, 
 3. Resolve it. **Zoom as needed**: fetch the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. When an existing Graphify graph can answer a relational part of the ticket, apply [Graph evidence](#graph-evidence). If in doubt, use `/grilling` and `/domain-modeling`.
 4. Record the resolution: post the answer as a **resolution comment**, **close** the issue, and **append a context pointer** to the map's Decisions-so-far.
 5. Add newly-surfaced tickets (create-then-wire); graduate any fog the answer has made specifiable, clearing each graduated patch from **Not yet specified** so it lives only as its new ticket. If the answer reveals that a ticket (this one or another) sits beyond the destination, **rule it out of scope** rather than resolving it on the route. If the decision invalidates other parts of the map, update or delete those tickets.
+6. Re-evaluate scheduled futures checkpoints against the changed route. Add, revise, or remove a checkpoint only when the plan's evidence about an optionality pressure point changed.
 
 The user may run unblocked tickets in parallel, so expect other sessions to be editing the tracker concurrently.
