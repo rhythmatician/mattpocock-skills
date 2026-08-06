@@ -1,0 +1,5 @@
+interface:
+  display_name: "Preserve Futures"
+  short_description: "Evaluate and restore concrete optionality"
+policy:
+  allow_implicit_invocation: false
