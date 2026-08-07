@@ -347,6 +347,103 @@ def test_registry_precedence_preserves_unresolved_tools() -> None:
     assert registry.resolve("missing") is None
 
 
+def test_definition_from_record_preserves_unknown_estimated_tokens() -> None:
+    from tool_definition_registry import DefinitionRecord
+
+    definition = optimizer.definition_from_record(
+        DefinitionRecord(
+            "unknown",
+            "codex",
+            "runtime_manifest",
+            "unknown",
+            None,
+            None,
+            None,
+            None,
+            "manifest.json",
+            "unresolved",
+            "unresolved",
+        )
+    )
+
+    assert definition.estimated_tokens is None
+    assert definition.serialized_chars is None
+
+
+def test_unresolved_cost_estimates_are_separate_empirical_quantiles() -> None:
+    sessions = [
+        optimizer.Session("one", "codex", ["resolved_low", "unknown"]),
+        optimizer.Session("two", "codex", ["resolved_high"], {"unknown"}),
+    ]
+    definitions = {
+        "resolved_low": optimizer.ToolDefinition("resolved_low", 40, 10, "codex"),
+        "resolved_high": optimizer.ToolDefinition("resolved_high", 80, 20, "codex"),
+        "unknown": optimizer.ToolDefinition("unknown", None, None, "unknown"),
+    }
+
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    unknown = stats["unknown"]
+    assert unknown.definition_tokens is None
+    assert (unknown.estimated_cost_low, unknown.estimated_cost_mid, unknown.estimated_cost_high) == (
+        12.5,
+        15.0,
+        17.5,
+    )
+    assert unknown.estimation_basis == optimizer.ESTIMATION_BASIS
+    assert unknown.estimation_confidence == "low"
+    assert unknown.estimated_cost_low <= unknown.estimated_cost_mid
+    assert unknown.estimated_cost_mid <= unknown.estimated_cost_high
+
+    for name, expected in (("resolved_low", 10), ("resolved_high", 20)):
+        assert stats[name].definition_tokens == expected
+        assert stats[name].estimated_cost_low is None
+        assert stats[name].estimated_cost_mid is None
+        assert stats[name].estimated_cost_high is None
+
+
+def test_relative_reduction_calculation_is_correct() -> None:
+    assert optimizer.reduction_metrics(100, 75) == {
+        "baseline_tokens_per_session": 100,
+        "proposed_tokens_per_session": 75,
+        "absolute_token_reduction_per_session": 25,
+        "relative_token_reduction": 0.25,
+    }
+
+
+def test_cost_scenarios_measure_raw_cluster_reduction() -> None:
+    sessions = [
+        optimizer.Session("one", "codex", ["resolved", "unknown"], {"resolved", "unknown"}),
+        optimizer.Session("two", "codex", ["resolved"], {"resolved", "unknown"}),
+    ]
+    definitions = {
+        "resolved": optimizer.ToolDefinition("resolved", 40, 10, "codex"),
+        "unknown": optimizer.ToolDefinition("unknown", None, None, "unknown"),
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+    agents = [{"candidate_id": "cluster_01", "tools": ["unknown"]}]
+
+    scenarios = optimizer.expected_token_cost_scenarios(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=agents,
+        delegation_overhead_tokens=0,
+    )
+
+    assert optimizer.scenario_cost(stats["resolved"], "low") == 10.0
+    assert optimizer.scenario_cost(stats["resolved"], "mid") == 10.0
+    assert optimizer.scenario_cost(stats["resolved"], "high") == 10.0
+    assert scenarios["low"] == {
+        "baseline_tokens_per_session": 20.0,
+        "proposed_tokens_per_session": 15.0,
+        "absolute_token_reduction_per_session": 5.0,
+        "relative_token_reduction": 0.25,
+    }
+    assert scenarios["low"]["baseline_tokens_per_session"] <= scenarios["high"]["baseline_tokens_per_session"]
+    assert scenarios["low"]["proposed_tokens_per_session"] <= scenarios["high"]["proposed_tokens_per_session"]
+
+
 def test_manifest_provider_recovers_advertised_definition_without_fabrication(
     tmp_path: Path,
 ) -> None:

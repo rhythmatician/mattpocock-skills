@@ -149,8 +149,8 @@ class Session:
 @dataclass
 class ToolDefinition:
     name: str
-    serialized_chars: int
-    estimated_tokens: int
+    serialized_chars: int | None
+    estimated_tokens: int | None
     source: str
     runtime: str = "unknown"
     provider: str = "unknown"
@@ -173,6 +173,11 @@ class ToolStat:
     expected_unused_tokens_per_session: float | None = None
     definition_tokens: int | None = None
     definition_cost_source: str = "unknown"
+    estimated_cost_low: float | None = None
+    estimated_cost_mid: float | None = None
+    estimated_cost_high: float | None = None
+    estimation_basis: str | None = None
+    estimation_confidence: str | None = None
 
 
 def normalize_tool_name(raw_name: str | None) -> str | None:
@@ -451,7 +456,13 @@ def get_vscode_sessions(
                         existing = definitions.get(definition.name)
                         if (
                             existing is None
-                            or definition.serialized_chars > existing.serialized_chars
+                            or (
+                                definition.serialized_chars is not None
+                                and (
+                                    existing.serialized_chars is None
+                                    or definition.serialized_chars > existing.serialized_chars
+                                )
+                            )
                         ):
                             definitions[definition.name] = definition
 
@@ -505,7 +516,13 @@ def get_codex_sessions(
                         existing = definitions.get(definition.name)
                         if (
                             existing is None
-                            or definition.serialized_chars > existing.serialized_chars
+                            or (
+                                definition.serialized_chars is not None
+                                and (
+                                    existing.serialized_chars is None
+                                    or definition.serialized_chars > existing.serialized_chars
+                                )
+                            )
                         ):
                             definitions[definition.name] = definition
 
@@ -534,8 +551,8 @@ def definition_from_record(record: DefinitionRecord) -> ToolDefinition:
     """Adapt the registry model to the optimizer's historical cost model."""
     return ToolDefinition(
         name=record.normalized_name,
-        serialized_chars=record.serialized_chars or 0,
-        estimated_tokens=record.estimated_tokens or 0,
+        serialized_chars=record.serialized_chars,
+        estimated_tokens=record.estimated_tokens,
         source=record.source,
         runtime=record.runtime,
         provider=record.provider,
@@ -709,7 +726,41 @@ def build_stats(
                 else 0.0
             )
 
+    infer_unresolved_costs(stats)
     return stats
+
+
+ESTIMATION_BASIS = (
+    "global distribution of resolved definition tokens "
+    "(25th percentile / median / 75th percentile)"
+)
+
+
+def infer_unresolved_costs(stats: dict[str, ToolStat]) -> None:
+    """Attach empirical scenarios without changing observed definition costs."""
+    resolved_costs = [
+        stat.definition_tokens
+        for stat in stats.values()
+        if stat.definition_tokens is not None
+    ]
+    if not resolved_costs:
+        return
+
+    estimates = {
+        "low": percentile(resolved_costs, 0.25),
+        "mid": percentile(resolved_costs, 0.50),
+        "high": percentile(resolved_costs, 0.75),
+    }
+    for stat in stats.values():
+        if stat.definition_tokens is not None:
+            continue
+        if stat.calls == 0 and stat.sessions_exposed == 0:
+            continue
+        stat.estimated_cost_low = estimates["low"]
+        stat.estimated_cost_mid = estimates["mid"]
+        stat.estimated_cost_high = estimates["high"]
+        stat.estimation_basis = ESTIMATION_BASIS
+        stat.estimation_confidence = "low"
 
 
 def session_population_summary(sessions: list[Session]) -> dict[str, int]:
@@ -1225,6 +1276,14 @@ def expected_known_token_cost(
     expected_savings_rate = (
         expected_savings / baseline_known_tokens if baseline_known_tokens else None
     )
+    cost_scenarios = expected_token_cost_scenarios(
+        sessions=sessions,
+        stats=stats,
+        global_tools=global_tools,
+        candidate_agents=candidate_agents,
+        delegation_overhead_tokens=delegation_overhead_tokens,
+        exposure_sessions=exposure_sessions,
+    )
 
     return {
         "known_cost_coverage": {
@@ -1283,12 +1342,121 @@ def expected_known_token_cost(
             if specialist_counts
             else 0.0
         ),
+        "cost_scenarios": cost_scenarios,
         "interpretation": (
             "Known-token estimate only. Unknown tool-definition costs are excluded. "
             "Recovered telemetry costs use a chars/4 approximation. "
             "Unclustered tools remain on the parent to make the estimate conservative."
         ),
     }
+
+
+COST_SCENARIOS = ("low", "mid", "high")
+
+
+def scenario_cost(stat: ToolStat, scenario: str) -> float | None:
+    if stat.definition_tokens is not None:
+        return float(stat.definition_tokens)
+    if scenario not in COST_SCENARIOS:
+        raise ValueError(f"Unknown cost scenario: {scenario}")
+    return getattr(stat, f"estimated_cost_{scenario}")
+
+
+def reduction_metrics(
+    baseline_tokens_per_session: float,
+    proposed_tokens_per_session: float,
+) -> dict[str, float | None]:
+    absolute_reduction = baseline_tokens_per_session - proposed_tokens_per_session
+    return {
+        "baseline_tokens_per_session": baseline_tokens_per_session,
+        "proposed_tokens_per_session": proposed_tokens_per_session,
+        "absolute_token_reduction_per_session": absolute_reduction,
+        "relative_token_reduction": (
+            absolute_reduction / baseline_tokens_per_session
+            if baseline_tokens_per_session
+            else 0.0
+        ),
+    }
+
+
+def expected_token_cost_scenarios(
+    sessions: list[Session],
+    stats: dict[str, ToolStat],
+    global_tools: set[str],
+    candidate_agents: list[dict[str, Any]],
+    delegation_overhead_tokens: int,
+    *,
+    exposure_sessions: list[Session] | None = None,
+) -> dict[str, dict[str, float | None]]:
+    """Estimate the current raw clusters under low/mid/high unresolved costs."""
+    session_by_id = {session.session_id: session for session in sessions}
+    for session in exposure_sessions or []:
+        session_by_id.setdefault(session.session_id, session)
+    scenario_sessions = list(session_by_id.values())
+    specialist_membership = {
+        tool: agent["candidate_id"]
+        for agent in candidate_agents
+        for tool in agent["tools"]
+    }
+    agents_by_id = {agent["candidate_id"]: agent for agent in candidate_agents}
+    parent_tools = (set(stats) - set(specialist_membership)) | global_tools
+
+    def total_cost(names: Iterable[str], scenario: str) -> float | None:
+        costs = []
+        for name in names:
+            stat = stats.get(name)
+            if stat is None:
+                continue
+            cost = scenario_cost(stat, scenario)
+            if cost is None:
+                return None
+            costs.append(cost)
+        return sum(costs)
+
+    result: dict[str, dict[str, float | None]] = {}
+    for scenario in COST_SCENARIOS:
+        baseline_costs: list[float] = []
+        proposed_costs: list[float] = []
+
+        for session in scenario_sessions:
+            observed_tools = session.exposed_tools | session.tool_set
+            baseline = total_cost(observed_tools, scenario)
+            if baseline is None:
+                continue
+
+            proposed = total_cost(observed_tools & parent_tools, scenario)
+            activated = {
+                specialist_membership[tool]
+                for tool in session.tool_set
+                if tool in specialist_membership
+            }
+            for candidate_id in activated:
+                agent_cost = total_cost(agents_by_id[candidate_id]["tools"], scenario)
+                if agent_cost is None:
+                    proposed = None
+                    break
+                proposed = (proposed or 0.0) + agent_cost + delegation_overhead_tokens
+
+            if proposed is None:
+                continue
+            baseline_costs.append(baseline)
+            proposed_costs.append(proposed)
+
+        if not baseline_costs:
+            result[scenario] = {
+                "baseline_tokens_per_session": None,
+                "proposed_tokens_per_session": None,
+                "absolute_token_reduction_per_session": None,
+                "relative_token_reduction": None,
+            }
+            continue
+
+        result[scenario] = reduction_metrics(
+            statistics.fmean(baseline_costs),
+            statistics.fmean(proposed_costs),
+        )
+
+    return result
 
 
 def source_summary(sessions: list[Session]) -> dict[str, int]:
@@ -1386,9 +1554,9 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append("## Tool inventory")
     lines.append("")
     lines.append(
-        "| Tool | Exposed | Used | P(use|exposed) | Calls | Def tokens | Waste/session | Boundary margin | Recommendation |"
+        "| Tool | Exposed | Used | P(use|exposed) | Calls | Def tokens | Est low | Est mid | Est high | Waste/session | Boundary margin | Recommendation |"
     )
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---|")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     for tool in report["tools"]:
         token_text = (
             str(tool["definition_tokens"])
@@ -1409,10 +1577,23 @@ def render_markdown(report: dict[str, Any]) -> str:
             if tool["boundary_margin"] is not None
             else "n/a"
         )
+        estimate_text = [
+            (
+                f"{tool[key]:.1f}"
+                if tool[key] is not None
+                else "n/a"
+            )
+            for key in (
+                "estimated_cost_low",
+                "estimated_cost_mid",
+                "estimated_cost_high",
+            )
+        ]
         lines.append(
             f"| `{tool['name']}` | {tool['sessions_exposed']} | "
             f"{tool['sessions_called']} | {conditional_text} | {tool['calls']} | "
-            f"{token_text} | {waste_text} | {margin_text} | {tool['classification']} |"
+            f"{token_text} | {' | '.join(estimate_text)} | {waste_text} | "
+            f"{margin_text} | {tool['classification']} |"
         )
     lines.append("")
 
@@ -1519,6 +1700,32 @@ def render_markdown(report: dict[str, Any]) -> str:
     )
     lines.append("")
     lines.append(overhead["interpretation"])
+    lines.append("")
+
+    lines.append("## Current candidate decomposition")
+    lines.append("")
+    lines.append("| | Low | Mid | High |")
+    lines.append("|---|---:|---:|---:|")
+    scenario_labels = (
+        ("baseline_tokens_per_session", "Baseline tokens/session"),
+        ("proposed_tokens_per_session", "Proposed tokens/session"),
+        (
+            "absolute_token_reduction_per_session",
+            "Reduction",
+        ),
+        ("relative_token_reduction", "Relative reduction"),
+    )
+    for key, label in scenario_labels:
+        values = []
+        for scenario in COST_SCENARIOS:
+            value = overhead["cost_scenarios"][scenario][key]
+            if value is None:
+                values.append("unavailable")
+            elif key == "relative_token_reduction":
+                values.append(f"{value:.1%}")
+            else:
+                values.append(f"{value:.1f}")
+        lines.append(f"| {label} | " + " | ".join(values) + " |")
     lines.append("")
 
     lines.append("## Dependency warnings")
@@ -1789,6 +1996,11 @@ def main() -> int:
                 "usage_rate": stat.usage_rate,
                 "definition_tokens": stat.definition_tokens,
                 "definition_cost_source": stat.definition_cost_source,
+                "estimated_cost_low": stat.estimated_cost_low,
+                "estimated_cost_mid": stat.estimated_cost_mid,
+                "estimated_cost_high": stat.estimated_cost_high,
+                "estimation_basis": stat.estimation_basis,
+                "estimation_confidence": stat.estimation_confidence,
                 "definition_provider": definition.provider if definition else None,
                 "definition_runtime": definition.runtime if definition else None,
                 "definition_raw_name": definition.raw_name if definition else None,
@@ -1846,7 +2058,7 @@ def main() -> int:
             "Historical co-usage is evidence of operational coupling, not proof that tools belong in the same agent.",
             "This script does not measure task correctness or success directly; quality preservation still requires empirical A/B or replay evaluation.",
             "Tool-definition token costs are exact only when supplied explicitly with --tool-costs. Telemetry-recovered costs use a chars/4 approximation.",
-            "The expected-token calculation excludes unknown tool-definition costs.",
+            "The known-token calculation excludes unknown tool-definition costs; scenario estimates use a global resolved-definition distribution for unresolved observed tools.",
             "A zero delegation-overhead setting is a lower-bound estimate, not a claim that delegation is free.",
             "Runtime logs may omit tools that were available but never called; this analysis is based on observed use.",
         ],
@@ -1891,6 +2103,26 @@ def main() -> int:
         )
     else:
         print("Expected known-token savings/session: unavailable")
+
+    print()
+    print("Current candidate decomposition")
+    print("                         Low       Mid      High")
+    for key, label in (
+        ("baseline_tokens_per_session", "Baseline tokens/session"),
+        ("proposed_tokens_per_session", "Proposed tokens/session"),
+        ("absolute_token_reduction_per_session", "Reduction"),
+        ("relative_token_reduction", "Relative reduction"),
+    ):
+        values = []
+        for scenario in COST_SCENARIOS:
+            value = overhead["cost_scenarios"][scenario][key]
+            if value is None:
+                values.append("unavailable")
+            elif key == "relative_token_reduction":
+                values.append(f"{value:.1%}")
+            else:
+                values.append(f"{value:.1f}")
+        print(f"{label:<25}{values[0]:>8}{values[1]:>10}{values[2]:>10}")
 
     print()
     print(f"JSON report:     {json_path.resolve()}")
