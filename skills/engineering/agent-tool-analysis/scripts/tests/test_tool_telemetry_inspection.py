@@ -206,6 +206,30 @@ def test_codex_exposure_extractor_uses_dynamic_tool_definitions_only() -> None:
     )
 
 
+def test_codex_provider_metadata_requires_named_dynamic_tool_group() -> None:
+    event = {
+        "payload": {
+            "dynamic_tools": [
+                {
+                    "name": "github",
+                    "tools": [
+                        {"name": "github.fetch_issue"},
+                        {"name": "github.fetch_pr"},
+                    ],
+                },
+                {"tools": [{"name": "unscoped.tool"}]},
+            ]
+        }
+    }
+
+    providers, provider_tools = optimizer.extract_codex_provider_metadata(event)
+
+    assert providers == {"github"}
+    assert provider_tools == {
+        "github": {"github.fetch_issue", "github.fetch_pr"}
+    }
+
+
 def test_exposure_matrix_does_not_turn_usage_into_exposure() -> None:
     sessions = [
         optimizer.Session(
@@ -640,3 +664,107 @@ def test_exposure_matrix_is_sparse() -> None:
         "possible_rows": 6,
         "observed_rows": 2,
     }
+
+
+def test_called_tools_never_become_directly_observed_exposure() -> None:
+    session = optimizer.Session("one", "codex", ["called_only"])
+
+    state = optimizer.baseline_exposure_states(
+        [session], "all_runtime_tools"
+    )[session.session_id]
+
+    assert state.actual_calls == frozenset({"called_only"})
+    assert state.directly_observed_exposure == frozenset()
+    assert state.inferred_baseline_exposure == frozenset({"called_only"})
+
+
+def test_observed_only_reproduces_direct_exposure_without_call_oracle() -> None:
+    sessions = [
+        optimizer.Session("called", "codex", ["called_only"]),
+        optimizer.Session("exposed", "codex", [], {"direct"}),
+    ]
+    definitions = {
+        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        for name, tokens in {"called_only": 10, "direct": 20}.items()
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    scenarios = optimizer.expected_token_cost_scenarios(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[],
+        delegation_overhead_tokens=0,
+        exposure_model="observed_only",
+    )
+
+    assert scenarios["mid"]["baseline_tokens_per_session"] == 10.0
+
+
+def test_all_runtime_tools_charges_one_parent_runtime_surface() -> None:
+    sessions = [
+        optimizer.Session("one", "codex", ["a"]),
+        optimizer.Session("two", "codex", ["b"]),
+    ]
+    definitions = {
+        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        for name, tokens in {"a": 10, "b": 20}.items()
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    scenarios = optimizer.expected_token_cost_scenarios(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[],
+        delegation_overhead_tokens=0,
+        exposure_model="all_runtime_tools",
+    )
+
+    assert scenarios["mid"]["baseline_tokens_per_session"] == 30.0
+
+
+def test_specialist_tools_leave_parent_and_load_only_on_activation() -> None:
+    sessions = [
+        optimizer.Session("idle", "codex", []),
+        optimizer.Session("active", "codex", ["specialist"]),
+    ]
+    definitions = {
+        "parent": optimizer.ToolDefinition("parent", 80, 20, "codex"),
+        "specialist": optimizer.ToolDefinition("specialist", 40, 10, "codex"),
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+    # Make both tools part of the observed runtime catalog without exposing
+    # either one directly in the idle session.
+    sessions[0].calls.append("parent")
+
+    scenarios = optimizer.expected_token_cost_scenarios(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[{"candidate_id": "specialist", "tools": ["specialist"]}],
+        delegation_overhead_tokens=0,
+        exposure_model="all_runtime_tools",
+    )
+
+    assert scenarios["mid"]["baseline_tokens_per_session"] == 30.0
+    assert scenarios["mid"]["proposed_tokens_per_session"] == 25.0
+
+
+def test_provider_scoped_requires_provider_availability_telemetry() -> None:
+    sessions = [
+        optimizer.Session(
+            "available",
+            "codex",
+            [],
+            {"github.list"},
+            provider_availability={"github"},
+            provider_tools={"github": {"github.list", "github.get"}},
+        ),
+        optimizer.Session("called", "codex", ["github.get"]),
+    ]
+    states = optimizer.baseline_exposure_states(sessions, "provider_scoped")
+
+    assert states["available"].inferred_baseline_exposure == frozenset({"github.get"})
+    assert states["called"].inferred_baseline_exposure == frozenset()
+    assert states["called"].actual_calls == frozenset({"github.get"})

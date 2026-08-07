@@ -140,10 +140,22 @@ class Session:
     calls: list[str] = field(default_factory=list)
     exposed_tools: set[str] = field(default_factory=set)
     exposure_source: str = "not_observed"
+    provider_availability: set[str] = field(default_factory=set)
+    provider_tools: dict[str, set[str]] = field(default_factory=dict)
+
+    @property
+    def directly_observed_exposure(self) -> set[str]:
+        """Tool definitions directly observed as exposed in this session."""
+        return self.exposed_tools
+
+    @property
+    def actual_calls(self) -> list[str]:
+        """Tool calls observed in this session; never an exposure proxy."""
+        return self.calls
 
     @property
     def tool_set(self) -> set[str]:
-        return set(self.calls)
+        return set(self.actual_calls)
 
 
 @dataclass
@@ -402,6 +414,57 @@ def extract_codex_exposures(event: Any) -> set[str]:
     return exposed
 
 
+def normalize_provider_name(raw_name: Any) -> str | None:
+    if not isinstance(raw_name, str):
+        return None
+    name = raw_name.strip()
+    return name or None
+
+
+def extract_codex_provider_metadata(
+    event: Any,
+) -> tuple[set[str], dict[str, set[str]]]:
+    """Extract provider availability and direct provider/tool memberships.
+
+    A provider is considered available only when a Codex dynamic-tool group
+    names it in telemetry. Calls, tool-name prefixes, and missing calls are not
+    provider-availability evidence.
+    """
+    if not isinstance(event, dict):
+        return set(), {}
+
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return set(), {}
+
+    dynamic_tools = payload.get("dynamic_tools")
+    if not isinstance(dynamic_tools, list):
+        return set(), {}
+
+    providers: set[str] = set()
+    provider_tools: dict[str, set[str]] = defaultdict(set)
+    for group in dynamic_tools:
+        if not isinstance(group, dict):
+            continue
+        provider = normalize_provider_name(
+            group.get("provider") or group.get("name") or group.get("id")
+        )
+        if not provider:
+            continue
+        providers.add(provider)
+        tools = group.get("tools")
+        if not isinstance(tools, list):
+            continue
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            name = normalize_tool_name(tool.get("name"))
+            if name:
+                provider_tools[provider].add(name)
+
+    return providers, dict(provider_tools)
+
+
 def get_vscode_sessions(
     workspace_storage: str,
 ) -> tuple[list[Session], dict[str, ToolDefinition]]:
@@ -493,6 +556,8 @@ def get_codex_sessions(
         session_id = f"codex:{os.path.relpath(file_path, sessions_dir)}"
         calls: list[str] = []
         exposed_tools: set[str] = set()
+        provider_availability: set[str] = set()
+        provider_tools: dict[str, set[str]] = defaultdict(set)
 
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -511,6 +576,12 @@ def get_codex_sessions(
                             calls.append(tool_name)
 
                     exposed_tools.update(extract_codex_exposures(event))
+                    event_providers, event_provider_tools = (
+                        extract_codex_provider_metadata(event)
+                    )
+                    provider_availability.update(event_providers)
+                    for provider, tools in event_provider_tools.items():
+                        provider_tools[provider].update(tools)
 
                     for definition in extract_tool_definitions(event, "codex"):
                         existing = definitions.get(definition.name)
@@ -536,6 +607,8 @@ def get_codex_sessions(
                     source="codex",
                     calls=calls,
                     exposed_tools=exposed_tools,
+                    provider_availability=provider_availability,
+                    provider_tools=dict(provider_tools),
                     exposure_source=(
                         "codex:payload.dynamic_tools[].tools[].name"
                         if exposed_tools
@@ -1010,6 +1083,8 @@ def build_exposure_matrix(
                 {
                     "session_id": session.session_id,
                     "tool_name": name,
+                    "directly_observed_exposure": name in session.directly_observed_exposure,
+                    "actual_call": name in session.actual_calls,
                     "exposed": name in session.exposed_tools,
                     "called": name in session.tool_set,
                     "call_count": session.calls.count(name),
@@ -1044,14 +1119,51 @@ def exposure_consistency(
     calls_without_direct_exposure = sum(
         1
         for session in sessions
-        for tool in session.tool_set
-        if tool not in session.exposed_tools
+        for tool in session.actual_calls
+        if tool not in session.directly_observed_exposure
     )
     return {
         "sessions_with_direct_exposure": sum(bool(s.exposed_tools) for s in sessions),
         "sessions_without_direct_exposure": sum(not s.exposed_tools for s in sessions),
         "called_tools_without_direct_exposure": calls_without_direct_exposure,
     }
+
+
+def exposure_model_summary(sessions: list[Session]) -> list[dict[str, Any]]:
+    """Summarize direct and inferred exposure without merging them."""
+    runtime_tools = observed_runtime_tools(sessions)
+    provider_by_tool = provider_families_by_tool(sessions)
+    rows = []
+    for model in EXPOSURE_MODELS:
+        states = {
+            session.session_id: baseline_exposure_state(
+                session,
+                model,
+                runtime_tools,
+                provider_by_tool,
+            )
+            for session in sessions
+        }
+        rows.append(
+            {
+                "model": model,
+                "description": EXPOSURE_MODEL_DESCRIPTIONS[model],
+                "sessions": len(sessions),
+                "runtime_tool_catalog_size": len(runtime_tools),
+                "sessions_with_inferred_exposure": sum(
+                    bool(states[session.session_id].inferred_baseline_exposure)
+                    for session in sessions
+                ),
+                "inferred_exposure_rows": sum(
+                    len(states[session.session_id].inferred_baseline_exposure)
+                    for session in sessions
+                ),
+                "sessions_with_provider_availability": sum(
+                    bool(session.provider_availability) for session in sessions
+                ),
+            }
+        )
+    return rows
 
 
 def percentile(values: list[int], q: float) -> float | None:
@@ -1203,6 +1315,21 @@ def dependency_warnings(
     return warnings
 
 
+COST_SCENARIOS = ("low", "mid", "high")
+EXPOSURE_MODELS = ("observed_only", "all_runtime_tools", "provider_scoped")
+EXPOSURE_MODEL_DESCRIPTIONS = {
+    "observed_only": (
+        "Lower bound: charge only directly observed parent exposure; never use calls as exposure evidence."
+    ),
+    "all_runtime_tools": (
+        "Counterfactual: expose every observed Codex runtime tool on the parent in every applicable Codex session."
+    ),
+    "provider_scoped": (
+        "Counterfactual: expose tools in providers explicitly marked available by Codex dynamic-tool telemetry."
+    ),
+}
+
+
 def expected_known_token_cost(
     sessions: list[Session],
     stats: dict[str, ToolStat],
@@ -1286,6 +1413,18 @@ def expected_known_token_cost(
         delegation_overhead_tokens=delegation_overhead_tokens,
         exposure_sessions=exposure_sessions,
     )
+    cost_scenarios_by_exposure_model = {
+        model: expected_token_cost_scenarios(
+            sessions=sessions,
+            stats=stats,
+            global_tools=global_tools,
+            candidate_agents=candidate_agents,
+            delegation_overhead_tokens=delegation_overhead_tokens,
+            exposure_sessions=exposure_sessions,
+            exposure_model=model,
+        )
+        for model in EXPOSURE_MODELS
+    }
 
     return {
         "known_cost_coverage": {
@@ -1345,15 +1484,105 @@ def expected_known_token_cost(
             else 0.0
         ),
         "cost_scenarios": cost_scenarios,
+        "cost_scenarios_by_exposure_model": cost_scenarios_by_exposure_model,
         "interpretation": (
-            "Known-token estimate only. Unknown tool-definition costs are excluded. "
+            "Known-token estimate using directly observed exposure only. "
+            "Unknown tool-definition costs are excluded. "
             "Recovered telemetry costs use a chars/4 approximation. "
-            "Unclustered tools remain on the parent to make the estimate conservative."
+            "Unclustered tools remain on the parent to make the estimate conservative. "
+            "Counterfactual exposure-model results are reported separately."
         ),
     }
 
 
-COST_SCENARIOS = ("low", "mid", "high")
+@dataclass(frozen=True)
+class BaselineExposure:
+    directly_observed_exposure: frozenset[str]
+    inferred_baseline_exposure: frozenset[str]
+    actual_calls: frozenset[str]
+
+    @property
+    def exposed_tools(self) -> frozenset[str]:
+        return self.directly_observed_exposure | self.inferred_baseline_exposure
+
+
+def observed_runtime_tools(sessions: list[Session]) -> set[str]:
+    """Return the corpus-level observed Codex runtime-tool catalog.
+
+    This catalog is an explicit counterfactual input. It is not rebuilt from a
+    session's calls while evaluating that session's baseline exposure.
+    """
+    return {
+        tool
+        for session in sessions
+        if session.source == "codex"
+        for tool in session.directly_observed_exposure | session.tool_set
+    }
+
+
+def provider_families_by_tool(sessions: list[Session]) -> dict[str, set[str]]:
+    """Map tools to provider families using direct dynamic-tool telemetry.
+
+    A dotted tool name supplies a stable family hint (for example,
+    ``github.fetch_issue`` -> ``github``), but that hint never creates provider
+    availability. Availability still must come from ``provider_availability``.
+    """
+    families: dict[str, set[str]] = defaultdict(set)
+    for session in sessions:
+        for provider, tools in session.provider_tools.items():
+            for tool in tools:
+                families[tool].add(provider)
+
+    runtime_tools = observed_runtime_tools(sessions)
+    for tool in runtime_tools:
+        if tool not in families and "." in tool:
+            families[tool].add(tool.split(".", 1)[0])
+    return dict(families)
+
+
+def baseline_exposure_state(
+    session: Session,
+    exposure_model: str,
+    runtime_tools: set[str],
+    provider_by_tool: dict[str, set[str]],
+) -> BaselineExposure:
+    """Build a session baseline without promoting calls to direct exposure."""
+    if exposure_model not in EXPOSURE_MODELS:
+        raise ValueError(f"Unknown exposure model: {exposure_model}")
+
+    directly_observed = frozenset(session.directly_observed_exposure)
+    inferred: set[str] = set()
+    if exposure_model == "all_runtime_tools" and session.source == "codex":
+        inferred.update(runtime_tools)
+    elif exposure_model == "provider_scoped" and session.source == "codex":
+        inferred.update(
+            tool
+            for tool in runtime_tools
+            if provider_by_tool.get(tool, set()) & session.provider_availability
+        )
+
+    return BaselineExposure(
+        directly_observed_exposure=directly_observed,
+        inferred_baseline_exposure=frozenset(inferred - directly_observed),
+        actual_calls=frozenset(session.actual_calls),
+    )
+
+
+def baseline_exposure_states(
+    sessions: list[Session],
+    exposure_model: str,
+) -> dict[str, BaselineExposure]:
+    runtime_tools = observed_runtime_tools(sessions)
+    provider_by_tool = provider_families_by_tool(sessions)
+    return {
+        session.session_id: baseline_exposure_state(
+            session,
+            exposure_model,
+            runtime_tools,
+            provider_by_tool,
+        )
+        for session in sessions
+    }
 
 
 def scenario_cost(stat: ToolStat, scenario: str) -> float | None:
@@ -1486,6 +1715,18 @@ def evaluate_architecture_variants(
             delegation_overhead_tokens=delegation_overhead_tokens,
             exposure_sessions=exposure_sessions,
         )
+        cost_scenarios_by_exposure_model = {
+            model: expected_token_cost_scenarios(
+                sessions=sessions,
+                stats=stats,
+                global_tools=global_tools,
+                candidate_agents=candidate,
+                delegation_overhead_tokens=delegation_overhead_tokens,
+                exposure_sessions=exposure_sessions,
+                exposure_model=model,
+            )
+            for model in EXPOSURE_MODELS
+        }
         activated_sessions = [
             bool(session.tool_set & specialist_tools) for session in scenario_sessions
         ]
@@ -1516,6 +1757,18 @@ def evaluate_architecture_variants(
                 **variant,
                 "historical_called_tool_coverage_rate": coverage_rate,
                 "scenarios": scenarios,
+                "scenarios_by_exposure_model": {
+                    model: {
+                        scenario: {
+                            **metrics,
+                            "specialist_activation_rate": activation_rate,
+                            "average_specialist_activations_per_session": average_activations,
+                            "sessions_requiring_specialist": sessions_requiring_specialist,
+                        }
+                        for scenario, metrics in model_scenarios.items()
+                    }
+                    for model, model_scenarios in cost_scenarios_by_exposure_model.items()
+                },
             }
         )
 
@@ -1542,9 +1795,11 @@ def expected_token_cost_scenarios(
     delegation_overhead_tokens: int,
     *,
     exposure_sessions: list[Session] | None = None,
+    exposure_model: str = "observed_only",
 ) -> dict[str, dict[str, float | None]]:
     """Estimate one architecture under low/mid/high unresolved costs."""
     scenario_sessions = _scenario_sessions(sessions, exposure_sessions)
+    exposure_states = baseline_exposure_states(scenario_sessions, exposure_model)
     specialist_membership = {
         tool: agent["candidate_id"]
         for agent in candidate_agents
@@ -1571,15 +1826,15 @@ def expected_token_cost_scenarios(
         proposed_costs: list[float] = []
 
         for session in scenario_sessions:
-            observed_tools = session.exposed_tools | session.tool_set
-            baseline = total_cost(observed_tools, scenario)
+            exposure = exposure_states[session.session_id]
+            baseline = total_cost(exposure.exposed_tools, scenario)
             if baseline is None:
                 continue
 
-            proposed = total_cost(observed_tools & parent_tools, scenario)
+            proposed = total_cost(exposure.exposed_tools & parent_tools, scenario)
             activated = {
                 specialist_membership[tool]
-                for tool in session.tool_set
+                for tool in exposure.actual_calls
                 if tool in specialist_membership
             }
             for candidate_id in activated:
@@ -1706,7 +1961,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append("## Tool inventory")
     lines.append("")
     lines.append(
-        "| Tool | Exposed | Used | P(use|exposed) | Calls | Def tokens | Est low | Est mid | Est high | Waste/session | Boundary margin | Recommendation |"
+        "| Tool | Directly observed exposure | Used | P(use|exposed) | Calls | Def tokens | Est low | Est mid | Est high | Waste/session | Boundary margin | Recommendation |"
     )
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     for tool in report["tools"]:
@@ -1854,6 +2109,27 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append(overhead["interpretation"])
     lines.append("")
 
+    lines.append("## Baseline exposure models")
+    lines.append("")
+    lines.append(
+        "Direct exposure is telemetry evidence. Inferred exposure is a labeled "
+        "counterfactual assumption and is never derived from calls in the same session."
+    )
+    lines.append("")
+    lines.append(
+        "| Model | Description | Runtime catalog | Sessions with inferred exposure | Inferred exposure rows | Sessions with provider availability |"
+    )
+    lines.append("|---|---|---:|---:|---:|---:|")
+    for model in report["exposure_models"]:
+        lines.append(
+            f"| `{model['model']}` | {model['description']} | "
+            f"{model['runtime_tool_catalog_size']} | "
+            f"{model['sessions_with_inferred_exposure']} | "
+            f"{model['inferred_exposure_rows']} | "
+            f"{model['sessions_with_provider_availability']} |"
+        )
+    lines.append("")
+
     lines.append("## Independent architecture variants")
     lines.append("")
     lines.append(
@@ -1880,36 +2156,43 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{variant['historical_called_tool_coverage_rate']:.1%}"
         )
         lines.append("")
-        lines.append(
-            "| Metric | Low | Mid | High |"
-        )
-        lines.append("|---|---:|---:|---:|")
-        for key, label in (
-            ("baseline_tokens_per_session", "Baseline tokens/session"),
-            ("proposed_tokens_per_session", "Proposed tokens/session"),
-            ("absolute_token_reduction_per_session", "Absolute reduction"),
-            ("relative_token_reduction", "Relative reduction"),
-            ("specialist_activation_rate", "Specialist activation rate"),
-            (
-                "average_specialist_activations_per_session",
-                "Average specialist activations/session",
-            ),
-            ("sessions_requiring_specialist", "Sessions requiring specialist"),
-        ):
-            values = []
-            for scenario in COST_SCENARIOS:
-                value = variant["scenarios"][scenario][key]
-                if value is None:
-                    values.append("unavailable")
-                elif key == "relative_token_reduction" or key == "specialist_activation_rate":
-                    values.append(f"{value:.1%}")
-                elif key == "average_specialist_activations_per_session":
-                    values.append(f"{value:.2f}")
-                elif key == "sessions_requiring_specialist":
-                    values.append(str(value))
-                else:
-                    values.append(f"{value:.1f}")
-            lines.append(f"| {label} | " + " | ".join(values) + " |")
+        for exposure_model in EXPOSURE_MODELS:
+            lines.append(f"#### Exposure model: `{exposure_model}`")
+            lines.append("")
+            lines.append(
+                f"{EXPOSURE_MODEL_DESCRIPTIONS[exposure_model]}"
+            )
+            lines.append("")
+            lines.append("| Metric | Low | Mid | High |")
+            lines.append("|---|---:|---:|---:|")
+            model_scenarios = variant["scenarios_by_exposure_model"][exposure_model]
+            for key, label in (
+                ("baseline_tokens_per_session", "Baseline tokens/session"),
+                ("proposed_tokens_per_session", "Proposed tokens/session"),
+                ("absolute_token_reduction_per_session", "Absolute reduction"),
+                ("relative_token_reduction", "Relative reduction"),
+                ("specialist_activation_rate", "Specialist activation rate"),
+                (
+                    "average_specialist_activations_per_session",
+                    "Average specialist activations/session",
+                ),
+                ("sessions_requiring_specialist", "Sessions requiring specialist"),
+            ):
+                values = []
+                for scenario in COST_SCENARIOS:
+                    value = model_scenarios[scenario][key]
+                    if value is None:
+                        values.append("unavailable")
+                    elif key in {"relative_token_reduction", "specialist_activation_rate"}:
+                        values.append(f"{value:.1%}")
+                    elif key == "average_specialist_activations_per_session":
+                        values.append(f"{value:.2f}")
+                    elif key == "sessions_requiring_specialist":
+                        values.append(str(value))
+                    else:
+                        values.append(f"{value:.1f}")
+                lines.append(f"| {label} | " + " | ".join(values) + " |")
+            lines.append("")
         lines.append("")
     lines.append("")
 
@@ -2203,6 +2486,7 @@ def main() -> int:
                     definition.evidence_type if definition else "unresolved"
                 ),
                 "sessions_exposed": stat.sessions_exposed,
+                "sessions_directly_observed_exposure": stat.sessions_exposed,
                 "sessions_called": stat.sessions_called,
                 "call_given_exposed": stat.call_given_exposed,
                 "expected_unused_tokens_per_session": stat.expected_unused_tokens_per_session,
@@ -2240,6 +2524,7 @@ def main() -> int:
         "exposure_matrix": build_exposure_matrix(sessions, stats),
         "exposure_matrix_summary": exposure_matrix_summary(sessions, stats),
         "exposure_consistency": exposure_consistency(sessions),
+        "exposure_models": exposure_model_summary(sessions),
         "definition_resolution": definition_resolution_report(stats, definition_registry),
         "definition_discovery": definition_discovery,
         "clusters": cluster_reports,
@@ -2255,7 +2540,9 @@ def main() -> int:
             "Tool-definition token costs are exact only when supplied explicitly with --tool-costs. Telemetry-recovered costs use a chars/4 approximation.",
             "The known-token calculation excludes unknown tool-definition costs; scenario estimates use a global resolved-definition distribution for unresolved observed tools.",
             "A zero delegation-overhead setting is a lower-bound estimate, not a claim that delegation is free.",
-            "Runtime logs may omit tools that were available but never called; this analysis is based on observed use.",
+            "Direct exposure, inferred baseline exposure, and actual calls are separate evidence dimensions; observed-only is an oracle lower bound and should not judge specialization.",
+            "The all-runtime and provider-scoped results are counterfactual baseline assumptions, not observed exposure claims.",
+            "Provider-scoped exposure requires explicit provider availability telemetry; calls and absent calls do not establish availability.",
         ],
     }
 
@@ -2300,7 +2587,7 @@ def main() -> int:
         print("Expected known-token savings/session: unavailable")
 
     print()
-    print("Independent architecture variants (ranked by mid-case reduction)")
+    print("Independent architecture variants (ranked by observed-only mid-case reduction)")
     print("Variant                         Low       Mid      High  Activation")
     for variant in architecture_variants:
         reductions = [
@@ -2317,6 +2604,27 @@ def main() -> int:
             f"{formatted_reductions[1]:>10}"
             f"{formatted_reductions[2]:>10}"
             f"  {variant['scenarios']['mid']['specialist_activation_rate']:.1%}"
+        )
+
+    print()
+    print("Mid-case relative reduction by baseline exposure model")
+    print("Variant                         Observed-only  All-runtime  Provider-scoped")
+    for variant in architecture_variants:
+        reductions = [
+            variant["scenarios_by_exposure_model"][model]["mid"][
+                "relative_token_reduction"
+            ]
+            for model in EXPOSURE_MODELS
+        ]
+        formatted_reductions = [
+            f"{value:.1%}" if value is not None else "n/a"
+            for value in reductions
+        ]
+        print(
+            f"{variant['variant_id']:<30}"
+            f"{formatted_reductions[0]:>14}"
+            f"{formatted_reductions[1]:>13}"
+            f"{formatted_reductions[2]:>17}"
         )
 
     print()
