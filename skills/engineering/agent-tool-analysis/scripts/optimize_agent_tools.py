@@ -1317,6 +1317,7 @@ def dependency_warnings(
 
 COST_SCENARIOS = ("low", "mid", "high")
 EXPOSURE_MODELS = ("observed_only", "all_runtime_tools", "provider_scoped")
+DECISION_EXPOSURE_MODELS = ("provider_scoped", "all_runtime_tools")
 EXPOSURE_MODEL_DESCRIPTIONS = {
     "observed_only": (
         "Lower bound: charge only directly observed parent exposure; never use calls as exposure evidence."
@@ -1523,9 +1524,9 @@ def observed_runtime_tools(sessions: list[Session]) -> set[str]:
 def provider_families_by_tool(sessions: list[Session]) -> dict[str, set[str]]:
     """Map tools to provider families using direct dynamic-tool telemetry.
 
-    A dotted tool name supplies a stable family hint (for example,
-    ``github.fetch_issue`` -> ``github``), but that hint never creates provider
-    availability. Availability still must come from ``provider_availability``.
+    Calls and dotted tool names are deliberately excluded. The provider-scoped
+    model must not inherit the all-runtime catalog's call-derived tools; both
+    provider availability and provider/tool membership need direct telemetry.
     """
     families: dict[str, set[str]] = defaultdict(set)
     for session in sessions:
@@ -1533,10 +1534,6 @@ def provider_families_by_tool(sessions: list[Session]) -> dict[str, set[str]]:
             for tool in tools:
                 families[tool].add(provider)
 
-    runtime_tools = observed_runtime_tools(sessions)
-    for tool in runtime_tools:
-        if tool not in families and "." in tool:
-            families[tool].add(tool.split(".", 1)[0])
     return dict(families)
 
 
@@ -1557,7 +1554,7 @@ def baseline_exposure_state(
     elif exposure_model == "provider_scoped" and session.source == "codex":
         inferred.update(
             tool
-            for tool in runtime_tools
+            for tool in provider_by_tool
             if provider_by_tool.get(tool, set()) & session.provider_availability
         )
 
@@ -1582,6 +1579,81 @@ def baseline_exposure_states(
             provider_by_tool,
         )
         for session in sessions
+    }
+
+
+def provider_scoped_session_diagnostics(
+    sessions: list[Session],
+) -> list[dict[str, Any]]:
+    """Report provider-scoped evidence and inferred exposure per session."""
+    states = baseline_exposure_states(sessions, "provider_scoped")
+    rows = []
+    for session in sessions:
+        state = states[session.session_id]
+        rows.append(
+            {
+                "session_id": session.session_id,
+                "source": session.source,
+                "provider_availability_observed": bool(
+                    session.provider_availability
+                ),
+                "providers_available": sorted(session.provider_availability),
+                "inferred_runtime_tools": sorted(state.inferred_baseline_exposure),
+                "directly_exposed_tools": sorted(
+                    state.directly_observed_exposure
+                ),
+                "called_tools": sorted(state.actual_calls),
+            }
+        )
+    return rows
+
+
+def sensitivity_summary(
+    scenarios_by_exposure_model: dict[str, dict[str, dict[str, float | None]]],
+) -> dict[str, Any]:
+    """Summarize mid-case sensitivity and decision-model sign stability."""
+    mid_reductions = {
+        model: scenarios["mid"]["relative_token_reduction"]
+        for model, scenarios in scenarios_by_exposure_model.items()
+    }
+    available = {
+        model: value for model, value in mid_reductions.items() if value is not None
+    }
+    decision_values: list[float] = [
+        value
+        for model in DECISION_EXPOSURE_MODELS
+        if (value := mid_reductions.get(model)) is not None
+    ]
+    if not available:
+        return {
+            "min_mid_reduction": None,
+            "max_mid_reduction": None,
+            "exposure_model_at_min": None,
+            "exposure_model_at_max": None,
+            "sign_stable": False,
+        }
+
+    min_value = min(available.values())
+    max_value = max(available.values())
+    sign_stable = (
+        len(decision_values) == len(DECISION_EXPOSURE_MODELS)
+        and all(value > 0 for value in decision_values)
+    ) or (
+        len(decision_values) == len(DECISION_EXPOSURE_MODELS)
+        and all(value < 0 for value in decision_values)
+    )
+    return {
+        "min_mid_reduction": min_value,
+        "max_mid_reduction": max_value,
+        "exposure_model_at_min": min(
+            (model for model, value in available.items() if value == min_value),
+            key=EXPOSURE_MODELS.index,
+        ),
+        "exposure_model_at_max": max(
+            (model for model, value in available.items() if value == max_value),
+            key=EXPOSURE_MODELS.index,
+        ),
+        "sign_stable": sign_stable,
     }
 
 
@@ -1752,11 +1824,14 @@ def evaluate_architecture_variants(
                 "sessions_requiring_specialist": sessions_requiring_specialist,
             }
 
+        sensitivity = sensitivity_summary(cost_scenarios_by_exposure_model)
         evaluated.append(
             {
                 **variant,
                 "historical_called_tool_coverage_rate": coverage_rate,
                 "scenarios": scenarios,
+                "sensitivity": sensitivity,
+                **sensitivity,
                 "scenarios_by_exposure_model": {
                     model: {
                         scenario: {
@@ -2155,6 +2230,30 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"- Historical called-tool coverage: "
             f"{variant['historical_called_tool_coverage_rate']:.1%}"
         )
+        sensitivity = variant["sensitivity"]
+        if sensitivity["min_mid_reduction"] is None:
+            lines.append("- Mid-case sensitivity: unavailable")
+        else:
+            lines.append(
+                f"- Mid-case sensitivity range: "
+                f"{sensitivity['min_mid_reduction']:.1%} to "
+                f"{sensitivity['max_mid_reduction']:.1%}"
+            )
+            lines.append(
+                f"- Sensitivity range models: "
+                f"`{sensitivity['exposure_model_at_min']}` to "
+                f"`{sensitivity['exposure_model_at_max']}`"
+            )
+            lines.append(
+                f"- Decision-model sign stable: "
+                f"{'yes' if sensitivity['sign_stable'] else 'no'}"
+            )
+        lines.append(
+            f"- Decision-model mid reduction: provider-scoped "
+            f"{variant['scenarios_by_exposure_model']['provider_scoped']['mid']['relative_token_reduction']:.1%}, "
+            f"all-runtime "
+            f"{variant['scenarios_by_exposure_model']['all_runtime_tools']['mid']['relative_token_reduction']:.1%}"
+        )
         lines.append("")
         for exposure_model in EXPOSURE_MODELS:
             lines.append(f"#### Exposure model: `{exposure_model}`")
@@ -2194,6 +2293,36 @@ def render_markdown(report: dict[str, Any]) -> str:
                 lines.append(f"| {label} | " + " | ".join(values) + " |")
             lines.append("")
         lines.append("")
+    lines.append("")
+
+    lines.append("## Provider-scoped session diagnostics")
+    lines.append("")
+    provider_sessions = report["provider_scoped_session_diagnostics"]
+    inferred_sessions = sum(
+        bool(row["inferred_runtime_tools"]) for row in provider_sessions
+    )
+    lines.append(
+        f"- Sessions with non-empty provider-scoped inferred exposure: "
+        f"{inferred_sessions}/{len(provider_sessions)}"
+    )
+    lines.append("")
+    lines.append(
+        "| Session | Provider availability observed? | Providers available | Inferred runtime tools | Directly exposed tools | Called tools |"
+    )
+    lines.append("|---|---|---|---|---|---|")
+
+    def format_tools(values: Iterable[str]) -> str:
+        return ", ".join(f"`{value}`" for value in values) or "none"
+
+    for row in provider_sessions:
+        lines.append(
+            f"| `{row['session_id']}` | "
+            f"{'yes' if row['provider_availability_observed'] else 'no'} | "
+            f"{format_tools(row['providers_available'])} | "
+            f"{format_tools(row['inferred_runtime_tools'])} | "
+            f"{format_tools(row['directly_exposed_tools'])} | "
+            f"{format_tools(row['called_tools'])} |"
+        )
     lines.append("")
 
     lines.append("## Dependency warnings")
@@ -2525,6 +2654,9 @@ def main() -> int:
         "exposure_matrix_summary": exposure_matrix_summary(sessions, stats),
         "exposure_consistency": exposure_consistency(sessions),
         "exposure_models": exposure_model_summary(sessions),
+        "provider_scoped_session_diagnostics": provider_scoped_session_diagnostics(
+            sessions
+        ),
         "definition_resolution": definition_resolution_report(stats, definition_registry),
         "definition_discovery": definition_discovery,
         "clusters": cluster_reports,
@@ -2625,6 +2757,17 @@ def main() -> int:
             f"{formatted_reductions[0]:>14}"
             f"{formatted_reductions[1]:>13}"
             f"{formatted_reductions[2]:>17}"
+        )
+
+    print()
+    print("Decision-model sensitivity range (provider-scoped to all-runtime)")
+    print("Variant                         Provider-scoped  All-runtime  Sign stable")
+    for variant in architecture_variants:
+        print(
+            f"{variant['variant_id']:<30}"
+            f"{variant['scenarios_by_exposure_model']['provider_scoped']['mid']['relative_token_reduction']:>16.1%}"
+            f"{variant['scenarios_by_exposure_model']['all_runtime_tools']['mid']['relative_token_reduction']:>13.1%}"
+            f"  {'yes' if variant['sign_stable'] else 'no'}"
         )
 
     print()

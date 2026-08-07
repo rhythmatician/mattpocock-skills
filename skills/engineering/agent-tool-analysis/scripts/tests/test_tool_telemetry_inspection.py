@@ -768,3 +768,55 @@ def test_provider_scoped_requires_provider_availability_telemetry() -> None:
     assert states["available"].inferred_baseline_exposure == frozenset({"github.get"})
     assert states["called"].inferred_baseline_exposure == frozenset()
     assert states["called"].actual_calls == frozenset({"github.get"})
+
+
+def test_provider_scoped_does_not_infer_called_only_dotted_tools() -> None:
+    sessions = [
+        optimizer.Session(
+            "available",
+            "codex",
+            [],
+            provider_availability={"github"},
+        ),
+        optimizer.Session("called", "codex", ["github.get"]),
+    ]
+
+    states = optimizer.baseline_exposure_states(sessions, "provider_scoped")
+
+    assert states["available"].inferred_baseline_exposure == frozenset()
+
+
+def test_sensitivity_summary_uses_all_models_but_sign_stability_uses_decision_models() -> None:
+    scenarios = {
+        model: {
+            "mid": {"relative_token_reduction": value},
+        }
+        for model, value in {
+            "observed_only": -0.5,
+            "provider_scoped": 0.1,
+            "all_runtime_tools": 0.2,
+        }.items()
+    }
+
+    summary = optimizer.sensitivity_summary(scenarios)
+
+    assert summary == {
+        "min_mid_reduction": -0.5,
+        "max_mid_reduction": 0.2,
+        "exposure_model_at_min": "observed_only",
+        "exposure_model_at_max": "all_runtime_tools",
+        "sign_stable": True,
+    }
+
+
+def test_sensitivity_summary_is_not_stable_when_decision_models_disagree() -> None:
+    scenarios = {
+        model: {"mid": {"relative_token_reduction": value}}
+        for model, value in {
+            "observed_only": -0.5,
+            "provider_scoped": -0.1,
+            "all_runtime_tools": 0.2,
+        }.items()
+    }
+
+    assert optimizer.sensitivity_summary(scenarios)["sign_stable"] is False
