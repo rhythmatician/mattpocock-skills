@@ -1131,7 +1131,8 @@ def make_candidate_agents(
 ) -> list[dict[str, Any]]:
     agents = []
 
-    for cluster in clusters:
+    for cluster_index, cluster in enumerate(clusters, start=1):
+        cluster_id = f"cluster_{cluster_index:02d}"
         specialist_tools = set(cluster) - global_tools
         if len(specialist_tools) < min_cluster_size:
             continue
@@ -1153,7 +1154,8 @@ def make_candidate_agents(
 
         agents.append(
             {
-                "candidate_id": f"cluster_{len(agents) + 1:02d}",
+                "candidate_id": cluster_id,
+                "cluster_id": cluster_id,
                 "tools": tools_sorted,
                 "session_coverage_count": covered_sessions,
                 "session_coverage_rate": covered_sessions / len(sessions)
@@ -1379,6 +1381,159 @@ def reduction_metrics(
     }
 
 
+def build_architecture_variants(
+    candidate_agents: list[dict[str, Any]],
+    boundary_by_tool: dict[str, dict[str, float]],
+    global_tools: set[str],
+) -> list[dict[str, Any]]:
+    """Build baseline and one-specialist variants without combining clusters."""
+    variants: list[dict[str, Any]] = [
+        {
+            "variant_id": "baseline",
+            "variant_type": "baseline",
+            "cluster_id": None,
+            "specialist_tools": [],
+            "pruned_tools": [],
+        }
+    ]
+
+    for agent in candidate_agents:
+        candidate_id = str(agent["candidate_id"])
+        cluster_id = str(agent.get("cluster_id", candidate_id))
+        specialist_tools = sorted(set(agent["tools"]) - global_tools)
+        if len(specialist_tools) < 2:
+            continue
+
+        variants.append(
+            {
+                "variant_id": candidate_id,
+                "variant_type": "raw_cluster",
+                "cluster_id": cluster_id,
+                "specialist_tools": specialist_tools,
+                "pruned_tools": [],
+            }
+        )
+
+        retained_tools = sorted(
+            tool
+            for tool in specialist_tools
+            if boundary_by_tool.get(tool, {}).get("boundary_margin", 0.0) > 0
+        )
+        if len(retained_tools) < 2:
+            continue
+
+        variants.append(
+            {
+                "variant_id": f"{candidate_id}_boundary_pruned",
+                "variant_type": "boundary_pruned",
+                "cluster_id": cluster_id,
+                "specialist_tools": retained_tools,
+                "pruned_tools": sorted(set(specialist_tools) - set(retained_tools)),
+            }
+        )
+
+    return variants
+
+
+def _scenario_sessions(
+    sessions: list[Session],
+    exposure_sessions: list[Session] | None,
+) -> list[Session]:
+    session_by_id = {session.session_id: session for session in sessions}
+    for session in exposure_sessions or []:
+        session_by_id.setdefault(session.session_id, session)
+    return list(session_by_id.values())
+
+
+def evaluate_architecture_variants(
+    sessions: list[Session],
+    stats: dict[str, ToolStat],
+    global_tools: set[str],
+    candidate_agents: list[dict[str, Any]],
+    boundary_by_tool: dict[str, dict[str, float]],
+    delegation_overhead_tokens: int,
+    *,
+    exposure_sessions: list[Session] | None = None,
+) -> list[dict[str, Any]]:
+    """Evaluate baseline and each candidate independently, ranked by mid case."""
+    variants = build_architecture_variants(
+        candidate_agents=candidate_agents,
+        boundary_by_tool=boundary_by_tool,
+        global_tools=global_tools,
+    )
+    scenario_sessions = _scenario_sessions(sessions, exposure_sessions)
+    called_tools = {
+        tool for session in scenario_sessions for tool in session.tool_set
+    }
+
+    evaluated: list[dict[str, Any]] = []
+    for variant in variants:
+        specialist_tools = set(variant["specialist_tools"])
+        candidate = []
+        if specialist_tools:
+            candidate = [
+                {
+                    "candidate_id": variant["variant_id"],
+                    "tools": sorted(specialist_tools),
+                }
+            ]
+
+        cost_scenarios = expected_token_cost_scenarios(
+            sessions=sessions,
+            stats=stats,
+            global_tools=global_tools,
+            candidate_agents=candidate,
+            delegation_overhead_tokens=delegation_overhead_tokens,
+            exposure_sessions=exposure_sessions,
+        )
+        activated_sessions = [
+            bool(session.tool_set & specialist_tools) for session in scenario_sessions
+        ]
+        sessions_requiring_specialist = sum(activated_sessions)
+        session_count = len(scenario_sessions)
+        activation_rate = (
+            sessions_requiring_specialist / session_count if session_count else 0.0
+        )
+        average_activations = activation_rate
+        supported_tools = (set(stats) - specialist_tools) | specialist_tools | global_tools
+        coverage_rate = (
+            len(called_tools & supported_tools) / len(called_tools)
+            if called_tools
+            else 1.0
+        )
+
+        scenarios = {}
+        for scenario in COST_SCENARIOS:
+            scenarios[scenario] = {
+                **cost_scenarios[scenario],
+                "specialist_activation_rate": activation_rate,
+                "average_specialist_activations_per_session": average_activations,
+                "sessions_requiring_specialist": sessions_requiring_specialist,
+            }
+
+        evaluated.append(
+            {
+                **variant,
+                "historical_called_tool_coverage_rate": coverage_rate,
+                "scenarios": scenarios,
+            }
+        )
+
+    evaluated.sort(
+        key=lambda item: (
+            -(
+                item["scenarios"]["mid"]["relative_token_reduction"]
+                if item["scenarios"]["mid"]["relative_token_reduction"] is not None
+                else float("-inf")
+            ),
+            item["variant_id"],
+        )
+    )
+    for rank, variant in enumerate(evaluated, start=1):
+        variant["rank"] = rank
+    return evaluated
+
+
 def expected_token_cost_scenarios(
     sessions: list[Session],
     stats: dict[str, ToolStat],
@@ -1388,11 +1543,8 @@ def expected_token_cost_scenarios(
     *,
     exposure_sessions: list[Session] | None = None,
 ) -> dict[str, dict[str, float | None]]:
-    """Estimate the current raw clusters under low/mid/high unresolved costs."""
-    session_by_id = {session.session_id: session for session in sessions}
-    for session in exposure_sessions or []:
-        session_by_id.setdefault(session.session_id, session)
-    scenario_sessions = list(session_by_id.values())
+    """Estimate one architecture under low/mid/high unresolved costs."""
+    scenario_sessions = _scenario_sessions(sessions, exposure_sessions)
     specialist_membership = {
         tool: agent["candidate_id"]
         for agent in candidate_agents
@@ -1639,7 +1791,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         )
     lines.append("")
 
-    lines.append("## Overhead estimate")
+    lines.append("## Baseline overhead context")
     lines.append("")
     overhead = report["overhead"]
     coverage = overhead["known_cost_coverage"]
@@ -1702,30 +1854,63 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append(overhead["interpretation"])
     lines.append("")
 
-    lines.append("## Current candidate decomposition")
+    lines.append("## Independent architecture variants")
     lines.append("")
-    lines.append("| | Low | Mid | High |")
-    lines.append("|---|---:|---:|---:|")
-    scenario_labels = (
-        ("baseline_tokens_per_session", "Baseline tokens/session"),
-        ("proposed_tokens_per_session", "Proposed tokens/session"),
-        (
-            "absolute_token_reduction_per_session",
-            "Reduction",
-        ),
-        ("relative_token_reduction", "Relative reduction"),
+    lines.append(
+        "Variants are ranked by mid-case relative reduction; negative values are "
+        "reported, not selected away."
     )
-    for key, label in scenario_labels:
-        values = []
-        for scenario in COST_SCENARIOS:
-            value = overhead["cost_scenarios"][scenario][key]
-            if value is None:
-                values.append("unavailable")
-            elif key == "relative_token_reduction":
-                values.append(f"{value:.1%}")
-            else:
-                values.append(f"{value:.1f}")
-        lines.append(f"| {label} | " + " | ".join(values) + " |")
+    lines.append("")
+    for variant in report["architecture_variants"]:
+        lines.append(
+            f"### {variant['rank']}. `{variant['variant_id']}`"
+        )
+        lines.append("")
+        lines.append(
+            "- Specialist tools: "
+            + (", ".join(f"`{tool}`" for tool in variant["specialist_tools"]) or "none")
+        )
+        if variant["pruned_tools"]:
+            lines.append(
+                "- Boundary-pruned tools left on parent: "
+                + ", ".join(f"`{tool}`" for tool in variant["pruned_tools"])
+            )
+        lines.append(
+            f"- Historical called-tool coverage: "
+            f"{variant['historical_called_tool_coverage_rate']:.1%}"
+        )
+        lines.append("")
+        lines.append(
+            "| Metric | Low | Mid | High |"
+        )
+        lines.append("|---|---:|---:|---:|")
+        for key, label in (
+            ("baseline_tokens_per_session", "Baseline tokens/session"),
+            ("proposed_tokens_per_session", "Proposed tokens/session"),
+            ("absolute_token_reduction_per_session", "Absolute reduction"),
+            ("relative_token_reduction", "Relative reduction"),
+            ("specialist_activation_rate", "Specialist activation rate"),
+            (
+                "average_specialist_activations_per_session",
+                "Average specialist activations/session",
+            ),
+            ("sessions_requiring_specialist", "Sessions requiring specialist"),
+        ):
+            values = []
+            for scenario in COST_SCENARIOS:
+                value = variant["scenarios"][scenario][key]
+                if value is None:
+                    values.append("unavailable")
+                elif key == "relative_token_reduction" or key == "specialist_activation_rate":
+                    values.append(f"{value:.1%}")
+                elif key == "average_specialist_activations_per_session":
+                    values.append(f"{value:.2f}")
+                elif key == "sessions_requiring_specialist":
+                    values.append(str(value))
+                else:
+                    values.append(f"{value:.1f}")
+            lines.append(f"| {label} | " + " | ".join(values) + " |")
+        lines.append("")
     lines.append("")
 
     lines.append("## Dependency warnings")
@@ -1958,7 +2143,16 @@ def main() -> int:
         sessions=call_sessions,
         stats=stats,
         global_tools=global_tools,
+        candidate_agents=[],
+        delegation_overhead_tokens=args.delegation_overhead_tokens,
+        exposure_sessions=exposure_sessions,
+    )
+    architecture_variants = evaluate_architecture_variants(
+        sessions=call_sessions,
+        stats=stats,
+        global_tools=global_tools,
         candidate_agents=candidate_agents,
+        boundary_by_tool=boundary_by_tool,
         delegation_overhead_tokens=args.delegation_overhead_tokens,
         exposure_sessions=exposure_sessions,
     )
@@ -2051,6 +2245,7 @@ def main() -> int:
         "clusters": cluster_reports,
         "global_candidates": sorted(global_tools),
         "candidate_agents": candidate_agents,
+        "architecture_variants": architecture_variants,
         "dependency_warnings": warnings,
         "overhead": overhead,
         "strongest_pairs": strongest_pairs[:100],
@@ -2105,24 +2300,24 @@ def main() -> int:
         print("Expected known-token savings/session: unavailable")
 
     print()
-    print("Current candidate decomposition")
-    print("                         Low       Mid      High")
-    for key, label in (
-        ("baseline_tokens_per_session", "Baseline tokens/session"),
-        ("proposed_tokens_per_session", "Proposed tokens/session"),
-        ("absolute_token_reduction_per_session", "Reduction"),
-        ("relative_token_reduction", "Relative reduction"),
-    ):
-        values = []
-        for scenario in COST_SCENARIOS:
-            value = overhead["cost_scenarios"][scenario][key]
-            if value is None:
-                values.append("unavailable")
-            elif key == "relative_token_reduction":
-                values.append(f"{value:.1%}")
-            else:
-                values.append(f"{value:.1f}")
-        print(f"{label:<25}{values[0]:>8}{values[1]:>10}{values[2]:>10}")
+    print("Independent architecture variants (ranked by mid-case reduction)")
+    print("Variant                         Low       Mid      High  Activation")
+    for variant in architecture_variants:
+        reductions = [
+            variant["scenarios"][scenario]["relative_token_reduction"]
+            for scenario in COST_SCENARIOS
+        ]
+        formatted_reductions = [
+            f"{value:.1%}" if value is not None else "n/a"
+            for value in reductions
+        ]
+        print(
+            f"{variant['variant_id']:<30}"
+            f"{formatted_reductions[0]:>8}"
+            f"{formatted_reductions[1]:>10}"
+            f"{formatted_reductions[2]:>10}"
+            f"  {variant['scenarios']['mid']['specialist_activation_rate']:.1%}"
+        )
 
     print()
     print(f"JSON report:     {json_path.resolve()}")

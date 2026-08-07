@@ -444,6 +444,152 @@ def test_cost_scenarios_measure_raw_cluster_reduction() -> None:
     assert scenarios["low"]["proposed_tokens_per_session"] <= scenarios["high"]["proposed_tokens_per_session"]
 
 
+def _variant_test_stats() -> dict[str, optimizer.ToolStat]:
+    sessions = [
+        optimizer.Session("one", "codex", ["a", "b"], {"a", "b", "c", "d"}),
+        optimizer.Session("two", "codex", ["c"], {"a", "b", "c", "d"}),
+    ]
+    definitions = {
+        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        for name, tokens in {"a": 10, "b": 20, "c": 30, "d": 40}.items()
+    }
+    return optimizer.build_stats(sessions, definitions, {})
+
+
+def test_independent_variant_with_overhead_reports_negative_reduction() -> None:
+    sessions = [
+        optimizer.Session("one", "codex", ["a"], {"a", "b"}),
+        optimizer.Session("two", "codex", ["b"], {"a", "b"}),
+    ]
+    definitions = {
+        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        for name, tokens in {"a": 10, "b": 10}.items()
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    result = optimizer.evaluate_architecture_variants(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[{"candidate_id": "cluster_01", "tools": ["a", "b"]}],
+        boundary_by_tool={
+            "a": {"boundary_margin": 1.0},
+            "b": {"boundary_margin": 1.0},
+        },
+        delegation_overhead_tokens=5,
+    )
+
+    raw = next(item for item in result if item["variant_id"] == "cluster_01")
+    assert raw["scenarios"]["mid"]["absolute_token_reduction_per_session"] == -5
+    assert raw["scenarios"]["mid"]["relative_token_reduction"] < 0
+
+
+def test_independent_variant_does_not_move_tools_from_other_clusters() -> None:
+    sessions = [optimizer.Session("one", "codex", ["a", "c"], {"a", "c"})]
+    definitions = {
+        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    result = optimizer.evaluate_architecture_variants(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[
+            {"candidate_id": "cluster_01", "tools": ["a", "b"]},
+            {"candidate_id": "cluster_02", "tools": ["c"]},
+        ],
+        boundary_by_tool={},
+        delegation_overhead_tokens=0,
+    )
+
+    raw = next(item for item in result if item["variant_id"] == "cluster_01")
+    assert raw["scenarios"]["mid"]["proposed_tokens_per_session"] == 60
+    assert raw["specialist_tools"] == ["a", "b"]
+
+
+def test_boundary_pruning_keeps_pruned_tools_on_parent() -> None:
+    sessions = [
+        optimizer.Session("one", "codex", ["a", "b"], {"a", "b", "c"}),
+        optimizer.Session("two", "codex", ["c"], {"a", "b", "c"}),
+    ]
+    definitions = {
+        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    result = optimizer.evaluate_architecture_variants(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[{"candidate_id": "cluster_01", "tools": ["a", "b", "c"]}],
+        boundary_by_tool={
+            "a": {"boundary_margin": 0.2},
+            "b": {"boundary_margin": 0.1},
+            "c": {"boundary_margin": 0.0},
+        },
+        delegation_overhead_tokens=0,
+    )
+
+    pruned = next(
+        item for item in result if item["variant_id"] == "cluster_01_boundary_pruned"
+    )
+    assert pruned["specialist_tools"] == ["a", "b"]
+    assert pruned["pruned_tools"] == ["c"]
+    assert pruned["scenarios"]["mid"]["proposed_tokens_per_session"] == 45
+
+
+def test_variants_preserve_historical_called_tool_coverage() -> None:
+    sessions = [
+        optimizer.Session("one", "codex", ["a", "b", "c"], {"a", "b", "c"})
+    ]
+    definitions = {
+        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    result = optimizer.evaluate_architecture_variants(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[{"candidate_id": "cluster_01", "tools": ["a", "b"]}],
+        boundary_by_tool={},
+        delegation_overhead_tokens=0,
+    )
+
+    assert all(
+        item["historical_called_tool_coverage_rate"] == 1.0 for item in result
+    )
+
+
+def test_baseline_variant_always_reports_zero_reduction() -> None:
+    stats = _variant_test_stats()
+    sessions = [
+        optimizer.Session("one", "codex", ["a", "b"], {"a", "b", "c", "d"}),
+        optimizer.Session("two", "codex", ["c"], {"a", "b", "c", "d"}),
+    ]
+
+    baseline = optimizer.evaluate_architecture_variants(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[],
+        boundary_by_tool={},
+        delegation_overhead_tokens=100,
+    )[0]
+
+    for scenario in optimizer.COST_SCENARIOS:
+        metrics = baseline["scenarios"][scenario]
+        assert metrics["absolute_token_reduction_per_session"] == 0
+        assert metrics["relative_token_reduction"] == 0
+        assert metrics["specialist_activation_rate"] == 0
+        assert metrics["average_specialist_activations_per_session"] == 0
+        assert metrics["sessions_requiring_specialist"] == 0
+
+
 def test_manifest_provider_recovers_advertised_definition_without_fabrication(
     tmp_path: Path,
 ) -> None:
