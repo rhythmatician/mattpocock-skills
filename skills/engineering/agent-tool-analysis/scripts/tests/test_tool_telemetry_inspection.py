@@ -43,8 +43,8 @@ def _load_module(name: str, filename: str) -> Any:
     return module
 
 
-optimizer = _load_module("optimize_agent_tools", "optimize_agent_tools.py")
-sys.modules["optimize_agent_tools"] = optimizer
+pipeline = _load_module("analysis_pipeline", "analysis_pipeline.py")
+sys.modules["analysis_pipeline"] = pipeline
 inspector = _load_module("inspect_codex_telemetry", "inspect_codex_telemetry.py")
 
 
@@ -201,8 +201,8 @@ def test_cost_coverage_separates_catalog_and_usage_weighted_rates() -> None:
         "used": make_definition("used", 20, 5),
     }
 
-    stats = optimizer.build_stats(sessions, definitions, {})
-    coverage = optimizer.expected_known_token_cost(
+    stats = pipeline.build_stats(sessions, definitions, {})
+    coverage = pipeline.expected_known_token_cost(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -400,7 +400,7 @@ def test_exposure_matrix_does_not_turn_usage_into_exposure() -> None:
         )
     ]
     definitions = {"used": make_definition("used", 40, 10)}
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
     row = build_exposure_matrix(sessions, stats)[0]
     assert row["called"] is True
@@ -409,7 +409,7 @@ def test_exposure_matrix_does_not_turn_usage_into_exposure() -> None:
     assert stats["used"].sessions_called == 1
     assert stats["used"].call_given_exposed is None
     assert (
-        optimizer.exposure_consistency(sessions)["called_tools_without_direct_exposure"]
+        pipeline.exposure_consistency(sessions)["called_tools_without_direct_exposure"]
         == 1
     )
 
@@ -421,7 +421,7 @@ def test_definition_tokens_account_for_exposed_but_unused_sessions() -> None:
     ]
     definitions = {"tool": make_definition("tool", 40, 10)}
 
-    stat = optimizer.build_stats(sessions, definitions, {})["tool"]
+    stat = pipeline.build_stats(sessions, definitions, {})["tool"]
 
     assert stat.sessions_exposed == 2
     assert stat.sessions_called == 1
@@ -477,7 +477,7 @@ def test_session_population_summary_keeps_call_and_exposure_denominators_separat
         Session("exposure", "codex", [], {"create_thread"}),
     ]
 
-    assert optimizer.session_population_summary(sessions) == {
+    assert pipeline.session_population_summary(sessions) == {
         "sessions_total": 3,
         "sessions_with_calls": 2,
         "sessions_with_direct_exposure": 2,
@@ -494,7 +494,7 @@ def test_usage_rate_uses_call_bearing_sessions_only() -> None:
         Session("exposure-only", "codex", [], {"exec"}),
     ]
 
-    stats = optimizer.build_stats(sessions, {}, {})
+    stats = pipeline.build_stats(sessions, {}, {})
 
     assert stats["exec"].usage_rate == 1 / 2
     assert stats["exec"].sessions_called == 1
@@ -561,7 +561,7 @@ def test_unresolved_cost_estimates_are_separate_empirical_quantiles() -> None:
         "unknown": make_definition("unknown", None, None, "unknown"),
     }
 
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
     unknown = stats["unknown"]
     assert unknown.definition_tokens is None
@@ -570,7 +570,7 @@ def test_unresolved_cost_estimates_are_separate_empirical_quantiles() -> None:
         15.0,
         17.5,
     )
-    assert unknown.estimation_basis == optimizer.ESTIMATION_BASIS
+    assert unknown.estimation_basis == pipeline.ESTIMATION_BASIS
     assert unknown.estimation_confidence == "low"
     assert unknown.estimated_cost_low <= unknown.estimated_cost_mid
     assert unknown.estimated_cost_mid <= unknown.estimated_cost_high
@@ -583,7 +583,7 @@ def test_unresolved_cost_estimates_are_separate_empirical_quantiles() -> None:
 
 
 def test_relative_reduction_calculation_is_correct() -> None:
-    assert optimizer.reduction_metrics(100, 75) == {
+    assert pipeline.reduction_metrics(100, 75) == {
         "baseline_tokens_per_session": 100,
         "proposed_tokens_per_session": 75,
         "absolute_token_reduction_per_session": 25,
@@ -600,10 +600,10 @@ def test_cost_scenarios_measure_raw_cluster_reduction() -> None:
         "resolved": make_definition("resolved", 40, 10),
         "unknown": make_definition("unknown", None, None, "unknown"),
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
     agents = [{"candidate_id": "cluster_01", "tools": ["unknown"]}]
 
-    scenarios = optimizer.expected_token_cost_scenarios(
+    scenarios = pipeline.expected_token_cost_scenarios(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -611,9 +611,9 @@ def test_cost_scenarios_measure_raw_cluster_reduction() -> None:
         delegation_overhead_tokens=0,
     )
 
-    assert optimizer.scenario_cost(stats["resolved"], "low") == 10.0
-    assert optimizer.scenario_cost(stats["resolved"], "mid") == 10.0
-    assert optimizer.scenario_cost(stats["resolved"], "high") == 10.0
+    assert pipeline.scenario_cost(stats["resolved"], "low") == 10.0
+    assert pipeline.scenario_cost(stats["resolved"], "mid") == 10.0
+    assert pipeline.scenario_cost(stats["resolved"], "high") == 10.0
     assert scenarios["low"] == {
         "baseline_tokens_per_session": 20.0,
         "proposed_tokens_per_session": 15.0,
@@ -624,7 +624,7 @@ def test_cost_scenarios_measure_raw_cluster_reduction() -> None:
     assert scenarios["low"]["proposed_tokens_per_session"] <= scenarios["high"]["proposed_tokens_per_session"]
 
 
-def _variant_test_stats() -> dict[str, optimizer.ToolStat]:
+def _variant_test_stats() -> dict[str, pipeline.ToolStat]:
     sessions = [
         Session("one", "codex", ["a", "b"], {"a", "b", "c", "d"}),
         Session("two", "codex", ["c"], {"a", "b", "c", "d"}),
@@ -633,7 +633,7 @@ def _variant_test_stats() -> dict[str, optimizer.ToolStat]:
         name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30, "d": 40}.items()
     }
-    return optimizer.build_stats(sessions, definitions, {})
+    return pipeline.build_stats(sessions, definitions, {})
 
 
 def test_independent_variant_with_overhead_reports_negative_reduction() -> None:
@@ -645,9 +645,9 @@ def test_independent_variant_with_overhead_reports_negative_reduction() -> None:
         name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 10}.items()
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
-    result = optimizer.evaluate_architecture_variants(
+    result = pipeline.evaluate_architecture_variants(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -670,9 +670,9 @@ def test_independent_variant_does_not_move_tools_from_other_clusters() -> None:
         name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
-    result = optimizer.evaluate_architecture_variants(
+    result = pipeline.evaluate_architecture_variants(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -698,9 +698,9 @@ def test_boundary_pruning_keeps_pruned_tools_on_parent() -> None:
         name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
-    result = optimizer.evaluate_architecture_variants(
+    result = pipeline.evaluate_architecture_variants(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -729,9 +729,9 @@ def test_variants_preserve_historical_called_tool_coverage() -> None:
         name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
-    result = optimizer.evaluate_architecture_variants(
+    result = pipeline.evaluate_architecture_variants(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -745,6 +745,234 @@ def test_variants_preserve_historical_called_tool_coverage() -> None:
     )
 
 
+def test_cluster_one_subsets_are_exhaustive_and_keep_reference() -> None:
+    sessions = [
+        Session("a", "codex", ["a"]),
+        Session("b", "codex", ["b"]),
+        Session("c", "codex", ["c"]),
+    ]
+    definitions = {
+        name: make_definition(name, tokens * 4, tokens)
+        for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
+    }
+    stats = pipeline.build_stats(sessions, definitions, {})
+    pairs = {
+        ("a", "b"): {"affinity": 0.8},
+        ("a", "c"): {"affinity": 0.3},
+        ("b", "c"): {"affinity": 0.2},
+    }
+
+    result = pipeline.evaluate_cluster_one_subsets(
+        sessions=sessions,
+        stats=stats,
+        cluster_tools={"a", "b", "c"},
+        pairs=pairs,
+        all_clustered_tools={"a", "b", "c"},
+        global_tools=set(),
+        delegation_overhead_tokens=0,
+        exposure_rates=(0.0, 0.25, 0.5, 1.0),
+    )
+
+    assert result is not None
+    assert result["subset_count"] == 4
+    assert {tuple(row["tools"]) for row in result["subsets"]} == {
+        ("a", "b"),
+        ("a", "c"),
+        ("b", "c"),
+        ("a", "b", "c"),
+    }
+    assert all(
+        row["historical_called_tool_coverage_rate"] == 1.0
+        for row in result["subsets"]
+    )
+
+    pair = next(row for row in result["subsets"] if row["tools"] == ["a", "b"])
+    assert pair["activation_rate"] == 2 / 3
+    assert pair["definition_tokens_low"] == 30
+    assert pair["definition_tokens_mid"] == 30
+    assert pair["definition_tokens_high"] == 30
+    assert pair["break_even_exposure_rate_mid"] == 2 / 3
+    assert pair["internal_affinity"] == 0.8
+    assert pair["mean_boundary_margin"] == pytest.approx(0.55)
+    assert pair["min_boundary_margin"] == 0.5
+    assert pair["net_reduction_at_25%"] == -12.5
+    assert pair["net_reduction_at_50%"] == -5
+    assert pair["net_reduction_at_100%"] == 10
+
+    reference = result["reference"]
+    assert reference["tools"] == ["a", "b", "c"]
+    assert reference["tool_count"] == 3
+    assert reference["reference_cluster"] is True
+    assert len(result["pareto_frontier"]) > 0
+    assert set(result["best_subsets"]) == {
+        "lowest_break_even_exposure_rate",
+        "greatest_mid_case_savings_at_25_percent_exposure",
+        "greatest_mid_case_savings_at_50_percent_exposure",
+        "greatest_mid_case_savings_at_100_percent_exposure",
+        "highest_internal_affinity_among_economically_viable_subsets",
+    }
+
+
+def test_subset_pareto_frontier_uses_all_three_economic_dimensions() -> None:
+    rows = [
+        {
+            "tools": ["dominator"],
+            "break_even_exposure_rate_mid": 0.2,
+            "definition_tokens_mid": 10,
+            "activation_rate": 0.1,
+        },
+        {
+            "tools": ["dominated"],
+            "break_even_exposure_rate_mid": 0.3,
+            "definition_tokens_mid": 10,
+            "activation_rate": 0.2,
+        },
+        {
+            "tools": ["tradeoff"],
+            "break_even_exposure_rate_mid": 0.1,
+            "definition_tokens_mid": 20,
+            "activation_rate": 0.1,
+        },
+    ]
+
+    frontier = pipeline._pareto_frontier(rows)
+
+    assert {tuple(row["tools"]) for row in frontier} == {
+        ("dominator",),
+        ("tradeoff",),
+    }
+
+
+def test_cluster_one_subset_retains_dependency_warnings() -> None:
+    sessions = [
+        Session("edit", "codex", ["apply_patch"]),
+        Session("create", "codex", ["create_file"]),
+        Session("test", "codex", ["execute/runTests"]),
+    ]
+    definitions = {
+        name: make_definition(name, 40, 10)
+        for name in ("apply_patch", "create_file", "execute/runTests")
+    }
+    stats = pipeline.build_stats(sessions, definitions, {})
+    pairs = {("apply_patch", "create_file"): {"affinity": 0.5}}
+
+    result = pipeline.evaluate_cluster_one_subsets(
+        sessions=sessions,
+        stats=stats,
+        cluster_tools={"apply_patch", "create_file"},
+        pairs=pairs,
+        all_clustered_tools={"apply_patch", "create_file"},
+        global_tools=set(),
+        delegation_overhead_tokens=0,
+        exposure_rates=(0.25, 0.5, 1.0),
+    )
+
+    assert result is not None
+    assert result["reference"]["dependency_warnings"] == {
+        "apply_patch": ["execute/runTests"]
+    }
+
+
+def test_candidate_decision_table_evaluates_fixed_grid_and_robustness() -> None:
+    pareto = {
+        "tools": ["a", "b"],
+        "tool_count": 2,
+        "activation_rate": 0.25,
+        "definition_tokens_mid": 100.0,
+        "internal_affinity": 0.8,
+        "min_boundary_margin": 0.2,
+    }
+    reference = {
+        "tools": ["a", "b", "c"],
+        "tool_count": 3,
+        "activation_rate": 0.5,
+        "definition_tokens_mid": 200.0,
+        "internal_affinity": 0.6,
+        "min_boundary_margin": 0.1,
+    }
+
+    result = pipeline.build_candidate_decision_table(
+        {"pareto_frontier": [pareto], "reference": reference}
+    )
+
+    assert result is not None
+    assert result["cost_scenario"] == "mid"
+    assert result["github_baseline_exposure_rates"] == [0.25, 0.5, 0.75, 1.0]
+    assert result["delegation_overhead_tokens_per_activation"] == [0, 100, 250, 500]
+    assert result["candidate_count"] == 2
+    assert result["grid_cells_per_candidate"] == 16
+
+    candidate = result["candidates"][0]
+    assert candidate["candidate_id"] == "pareto_01"
+    assert candidate["tools"] == ["a", "b"]
+    assert len(candidate["cells"]) == 16
+    zero_overhead = next(
+        cell
+        for cell in candidate["cells"]
+        if cell["github_baseline_exposure_rate"] == 0.5
+        and cell["delegation_overhead_tokens_per_activation"] == 0
+    )
+    assert zero_overhead == {
+        "github_baseline_exposure_rate": 0.5,
+        "delegation_overhead_tokens_per_activation": 0,
+        "activation_rate": 0.25,
+        "specialist_definition_tokens": 100.0,
+        "expected_tokens_per_session": 25.0,
+        "absolute_reduction_per_session": 25.0,
+        "relative_reduction": 0.5,
+        "break_even_github_exposure_rate": 0.25,
+        "internal_affinity": 0.8,
+        "minimum_boundary_margin": 0.2,
+    }
+    high_overhead = next(
+        cell
+        for cell in candidate["cells"]
+        if cell["github_baseline_exposure_rate"] == 0.25
+        and cell["delegation_overhead_tokens_per_activation"] == 500
+    )
+    assert high_overhead["expected_tokens_per_session"] == 150.0
+    assert high_overhead["absolute_reduction_per_session"] == -125.0
+    assert high_overhead["relative_reduction"] == -5.0
+    assert high_overhead["break_even_github_exposure_rate"] == 1.5
+    assert candidate["worst_case_positive_reduction"] == -125.0
+    assert candidate["viable_cells"] == 6 / 16
+
+    reference_candidate = result["candidates"][1]
+    assert reference_candidate["candidate_id"] == "cluster_01_reference"
+    assert reference_candidate["candidate_type"] == "reference"
+    assert reference_candidate["tools"] == ["a", "b", "c"]
+
+
+def test_candidate_decision_table_keeps_all_pareto_rows_plus_reference() -> None:
+    def row(name: str) -> dict[str, Any]:
+        return {
+            "tools": [name, f"{name}-helper"],
+            "tool_count": 2,
+            "activation_rate": 0.1,
+            "definition_tokens_mid": 10.0,
+            "internal_affinity": 0.5,
+            "min_boundary_margin": 0.1,
+        }
+
+    frontier = [row(f"p{index}") for index in range(1, 5)]
+    reference = row("reference")
+
+    result = pipeline.build_candidate_decision_table(
+        {"pareto_frontier": frontier, "reference": reference}
+    )
+
+    assert result is not None
+    assert result["candidate_count"] == 5
+    assert [candidate["candidate_id"] for candidate in result["candidates"]] == [
+        "pareto_01",
+        "pareto_02",
+        "pareto_03",
+        "pareto_04",
+        "cluster_01_reference",
+    ]
+    assert sum(len(candidate["cells"]) for candidate in result["candidates"]) == 80
+
+
 def test_baseline_variant_always_reports_zero_reduction() -> None:
     stats = _variant_test_stats()
     sessions = [
@@ -752,7 +980,7 @@ def test_baseline_variant_always_reports_zero_reduction() -> None:
         Session("two", "codex", ["c"], {"a", "b", "c", "d"}),
     ]
 
-    baseline = optimizer.evaluate_architecture_variants(
+    baseline = pipeline.evaluate_architecture_variants(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -808,7 +1036,7 @@ def test_exposure_matrix_is_sparse() -> None:
         "unused": make_definition("unused", 40, 10),
         "never": make_definition("never", 40, 10),
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
     matrix = build_exposure_matrix(sessions, stats)
 
@@ -845,9 +1073,9 @@ def test_observed_only_reproduces_direct_exposure_without_call_oracle() -> None:
         name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"called_only": 10, "direct": 20}.items()
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
-    scenarios = optimizer.expected_token_cost_scenarios(
+    scenarios = pipeline.expected_token_cost_scenarios(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -868,9 +1096,9 @@ def test_all_runtime_tools_charges_one_parent_runtime_surface() -> None:
         name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20}.items()
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
-    scenarios = optimizer.expected_token_cost_scenarios(
+    scenarios = pipeline.expected_token_cost_scenarios(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -891,12 +1119,12 @@ def test_specialist_tools_leave_parent_and_load_only_on_activation() -> None:
         "parent": make_definition("parent", 80, 20),
         "specialist": make_definition("specialist", 40, 10),
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
     # Make both tools part of the observed runtime catalog without exposing
     # either one directly in the idle session.
     sessions[0].calls.append("parent")
 
-    scenarios = optimizer.expected_token_cost_scenarios(
+    scenarios = pipeline.expected_token_cost_scenarios(
         sessions=sessions,
         stats=stats,
         global_tools=set(),
@@ -956,7 +1184,7 @@ def test_sensitivity_summary_uses_all_models_but_sign_stability_uses_decision_mo
         }.items()
     }
 
-    summary = optimizer.sensitivity_summary(scenarios)
+    summary = pipeline.sensitivity_summary(scenarios)
 
     assert summary == {
         "min_mid_reduction": -0.5,
@@ -977,7 +1205,7 @@ def test_sensitivity_summary_is_not_stable_when_decision_models_disagree() -> No
         }.items()
     }
 
-    assert optimizer.sensitivity_summary(scenarios)["sign_stable"] is False
+    assert pipeline.sensitivity_summary(scenarios)["sign_stable"] is False
 
 
 def test_cluster_exposure_economics_reports_break_even_and_tool_contributions() -> None:
@@ -1000,7 +1228,7 @@ def test_cluster_exposure_economics_reports_break_even_and_tool_contributions() 
         "github.one": make_definition("github.one", 40, 10),
         "github.two": make_definition("github.two", 80, 20),
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
     diagnostics = cluster_exposure_economics(
         sessions=sessions,
@@ -1055,7 +1283,7 @@ def test_cluster_exposure_economics_uses_provider_scoped_tool_membership() -> No
         "github.one": make_definition("github.one", 40, 10),
         "github.two": make_definition("github.two", 80, 20),
     }
-    stats = optimizer.build_stats(sessions, definitions, {})
+    stats = pipeline.build_stats(sessions, definitions, {})
 
     diagnostics = cluster_exposure_economics(
         sessions=sessions,
