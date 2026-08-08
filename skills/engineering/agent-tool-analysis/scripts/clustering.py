@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import statistics
 from collections import Counter, defaultdict
-from typing import Any, Iterable
+from typing import Iterable
 
 from telemetry_ingestion import Session
 
@@ -30,7 +30,12 @@ def build_adjacency_counts(sessions: list[Session]) -> Counter[tuple[str, str]]:
     return counts
 
 
-def pair_metrics(a: str, b: str, session_index: dict[str, set[int]], adjacency: Counter[tuple[str, str]]) -> dict[str, float]:
+def pair_metrics(
+    a: str,
+    b: str,
+    session_index: dict[str, set[int]],
+    adjacency: Counter[tuple[str, str]],
+) -> dict[str, float]:
     sa = session_index.get(a, set())
     sb = session_index.get(b, set())
     intersection = len(sa & sb)
@@ -50,7 +55,11 @@ def pair_metrics(a: str, b: str, session_index: dict[str, set[int]], adjacency: 
     }
 
 
-def all_pair_metrics(active_tools: list[str], session_index: dict[str, set[int]], adjacency: Counter[tuple[str, str]]) -> dict[tuple[str, str], dict[str, float]]:
+def all_pair_metrics(
+    active_tools: list[str],
+    session_index: dict[str, set[int]],
+    adjacency: Counter[tuple[str, str]],
+) -> dict[tuple[str, str], dict[str, float]]:
     return {
         (a, b): pair_metrics(a, b, session_index, adjacency)
         for i, a in enumerate(active_tools)
@@ -58,12 +67,21 @@ def all_pair_metrics(active_tools: list[str], session_index: dict[str, set[int]]
     }
 
 
-def cluster_affinity(left: set[str], right: set[str], pairs: dict[tuple[str, str], dict[str, float]]) -> float:
-    values = [pairs[pair_key(a, b)]["affinity"] for a in left for b in right if pair_key(a, b) in pairs]
+def cluster_affinity(
+    left: set[str], right: set[str], pairs: dict[tuple[str, str], dict[str, float]]
+) -> float:
+    values = [
+        pairs[pair_key(a, b)]["affinity"]
+        for a in left
+        for b in right
+        if pair_key(a, b) in pairs
+    ]
     return statistics.fmean(values) if values else 0.0
 
 
-def agglomerative_clusters(tools: list[str], pairs: dict[tuple[str, str], dict[str, float]], threshold: float) -> list[set[str]]:
+def agglomerative_clusters(
+    tools: list[str], pairs: dict[tuple[str, str], dict[str, float]], threshold: float
+) -> list[set[str]]:
     clusters = [{tool} for tool in tools]
     while len(clusters) > 1:
         best_score = -1.0
@@ -82,31 +100,82 @@ def agglomerative_clusters(tools: list[str], pairs: dict[tuple[str, str], dict[s
     return sorted(clusters, key=lambda cluster: (-len(cluster), sorted(cluster)))
 
 
-def cluster_internal_affinity(cluster: set[str], pairs: dict[tuple[str, str], dict[str, float]]) -> float:
-    values = [pairs[pair_key(a, b)]["affinity"] for i, a in enumerate(sorted(cluster)) for b in sorted(cluster)[i + 1 :] if pair_key(a, b) in pairs]
+def cluster_internal_affinity(
+    cluster: set[str], pairs: dict[tuple[str, str], dict[str, float]]
+) -> float:
+    values = [
+        pairs[pair_key(a, b)]["affinity"]
+        for i, a in enumerate(sorted(cluster))
+        for b in sorted(cluster)[i + 1 :]
+        if pair_key(a, b) in pairs
+    ]
     return statistics.fmean(values) if values else 0.0
 
 
-def tool_boundary_metrics(tool: str, cluster: set[str], pairs: dict[tuple[str, str], dict[str, float]], all_clustered_tools: Iterable[str]) -> dict[str, float]:
-    internal = [pairs[pair_key(tool, other)]["affinity"] for other in cluster if other != tool and pair_key(tool, other) in pairs]
-    external = [pairs[pair_key(tool, other)]["affinity"] for other in all_clustered_tools if other not in cluster and pair_key(tool, other) in pairs]
+def tool_boundary_metrics(
+    tool: str,
+    cluster: set[str],
+    pairs: dict[tuple[str, str], dict[str, float]],
+    all_clustered_tools: Iterable[str],
+) -> dict[str, float]:
+    internal = [
+        pairs[pair_key(tool, other)]["affinity"]
+        for other in cluster
+        if other != tool and pair_key(tool, other) in pairs
+    ]
+    external = [
+        pairs[pair_key(tool, other)]["affinity"]
+        for other in all_clustered_tools
+        if other not in cluster and pair_key(tool, other) in pairs
+    ]
     mean_internal = statistics.fmean(internal) if internal else 0.0
     best_external = max(external) if external else 0.0
-    return {"mean_internal_affinity": mean_internal, "best_external_affinity": best_external, "boundary_margin": mean_internal - best_external}
+    return {
+        "mean_internal_affinity": mean_internal,
+        "best_external_affinity": best_external,
+        "boundary_margin": mean_internal - best_external,
+    }
 
 
-def cluster_boundary_metrics(cluster: set[str], clusters: list[set[str]], pairs: dict[tuple[str, str], dict[str, float]], all_clustered_tools: Iterable[str], session_index: dict[str, set[int]], sessions: list[Session]) -> dict[str, float]:
-    tool_metrics = [tool_boundary_metrics(tool, cluster, pairs, all_clustered_tools) for tool in cluster]
-    external = [metric["best_external_affinity"] for metric in tool_metrics if metric["best_external_affinity"] > 0]
+def cluster_boundary_metrics(
+    cluster: set[str],
+    clusters: list[set[str]],
+    pairs: dict[tuple[str, str], dict[str, float]],
+    all_clustered_tools: Iterable[str],
+    session_index: dict[str, set[int]],
+    sessions: list[Session],
+) -> dict[str, float]:
+    tool_metrics = [
+        tool_boundary_metrics(tool, cluster, pairs, all_clustered_tools)
+        for tool in cluster
+    ]
+    external = [
+        metric["best_external_affinity"]
+        for metric in tool_metrics
+        if metric["best_external_affinity"] > 0
+    ]
     covered = set().union(*(session_index.get(tool, set()) for tool in cluster))
-    cluster_session_sets = [set().union(*(session_index.get(tool, set()) for tool in candidate)) for candidate in clusters]
+    cluster_session_sets = [
+        set().union(*(session_index.get(tool, set()) for tool in candidate))
+        for candidate in clusters
+    ]
     position = clusters.index(cluster)
-    other_sessions = set().union(*(value for i, value in enumerate(cluster_session_sets) if i != position))
+    other_sessions = set().union(
+        *(value for i, value in enumerate(cluster_session_sets) if i != position)
+    )
     return {
         "internal_affinity": cluster_internal_affinity(cluster, pairs),
         "max_external_affinity": max(external) if external else 0.0,
-        "mean_boundary_margin": statistics.fmean(metric["boundary_margin"] for metric in tool_metrics) if tool_metrics else 0.0,
+        "mean_boundary_margin": statistics.fmean(
+            metric["boundary_margin"] for metric in tool_metrics
+        )
+        if tool_metrics
+        else 0.0,
         "session_coverage": len(covered) / len(sessions) if sessions else 0.0,
-        "exclusive_session_coverage": len(covered - other_sessions) / len(sessions) if sessions else 0.0,
-        "overlapping_session_coverage": len(covered & other_sessions) / len(sessions) if sessions else 0.0,
+        "exclusive_session_coverage": len(covered - other_sessions) / len(sessions)
+        if sessions
+        else 0.0,
+        "overlapping_session_coverage": len(covered & other_sessions) / len(sessions)
+        if sessions
+        else 0.0,
     }

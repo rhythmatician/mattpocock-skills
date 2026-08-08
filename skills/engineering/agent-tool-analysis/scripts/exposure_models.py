@@ -35,7 +35,9 @@ class BaselineExposure:
 
 def observed_runtime_tools(sessions: list[Session]) -> set[str]:
     return {
-        tool for session in sessions if session.source == "codex"
+        tool
+        for session in sessions
+        if session.source == "codex"
         for tool in session.directly_observed_exposure | session.tool_set
     }
 
@@ -63,7 +65,8 @@ def baseline_exposure_state(
         inferred.update(runtime_tools)
     elif exposure_model == "provider_scoped" and session.source == "codex":
         inferred.update(
-            tool for tool in provider_by_tool
+            tool
+            for tool in provider_by_tool
             if provider_by_tool.get(tool, set()) & session.provider_availability
         )
     return BaselineExposure(
@@ -73,11 +76,15 @@ def baseline_exposure_state(
     )
 
 
-def baseline_exposure_states(sessions: list[Session], exposure_model: str) -> dict[str, BaselineExposure]:
+def baseline_exposure_states(
+    sessions: list[Session], exposure_model: str
+) -> dict[str, BaselineExposure]:
     runtime_tools = observed_runtime_tools(sessions)
     provider_by_tool = provider_families_by_tool(sessions)
     return {
-        session.session_id: baseline_exposure_state(session, exposure_model, runtime_tools, provider_by_tool)
+        session.session_id: baseline_exposure_state(
+            session, exposure_model, runtime_tools, provider_by_tool
+        )
         for session in sessions
     }
 
@@ -88,32 +95,53 @@ def exposure_model_summary(sessions: list[Session]) -> list[dict[str, Any]]:
     rows = []
     for model in EXPOSURE_MODELS:
         states = {
-            session.session_id: baseline_exposure_state(session, model, runtime_tools, provider_by_tool)
+            session.session_id: baseline_exposure_state(
+                session, model, runtime_tools, provider_by_tool
+            )
             for session in sessions
         }
-        rows.append({
-            "model": model,
-            "description": EXPOSURE_MODEL_DESCRIPTIONS[model],
-            "sessions": len(sessions),
-            "runtime_tool_catalog_size": len(runtime_tools),
-            "sessions_with_inferred_exposure": sum(bool(states[s.session_id].inferred_baseline_exposure) for s in sessions),
-            "inferred_exposure_rows": sum(len(states[s.session_id].inferred_baseline_exposure) for s in sessions),
-            "sessions_with_provider_availability": sum(bool(s.provider_availability) for s in sessions),
-        })
+        rows.append(
+            {
+                "model": model,
+                "description": EXPOSURE_MODEL_DESCRIPTIONS[model],
+                "sessions": len(sessions),
+                "runtime_tool_catalog_size": len(runtime_tools),
+                "sessions_with_inferred_exposure": sum(
+                    bool(states[s.session_id].inferred_baseline_exposure)
+                    for s in sessions
+                ),
+                "inferred_exposure_rows": sum(
+                    len(states[s.session_id].inferred_baseline_exposure)
+                    for s in sessions
+                ),
+                "sessions_with_provider_availability": sum(
+                    bool(s.provider_availability) for s in sessions
+                ),
+            }
+        )
     return rows
 
 
-def provider_scoped_session_diagnostics(sessions: list[Session]) -> list[dict[str, Any]]:
+def provider_scoped_session_diagnostics(
+    sessions: list[Session],
+) -> list[dict[str, Any]]:
     states = baseline_exposure_states(sessions, "provider_scoped")
-    return [{
-        "session_id": session.session_id,
-        "source": session.source,
-        "provider_availability_observed": bool(session.provider_availability),
-        "providers_available": sorted(session.provider_availability),
-        "inferred_runtime_tools": sorted(states[session.session_id].inferred_baseline_exposure),
-        "directly_exposed_tools": sorted(states[session.session_id].directly_observed_exposure),
-        "called_tools": sorted(states[session.session_id].actual_calls),
-    } for session in sessions]
+    return [
+        {
+            "session_id": session.session_id,
+            "source": session.source,
+            "provider_availability_observed": bool(session.provider_availability),
+            "providers_available": sorted(session.provider_availability),
+            "inferred_runtime_tools": sorted(
+                states[session.session_id].inferred_baseline_exposure
+            ),
+            "directly_exposed_tools": sorted(
+                states[session.session_id].directly_observed_exposure
+            ),
+            "called_tools": sorted(states[session.session_id].actual_calls),
+        }
+        for session in sessions
+    ]
 
 
 def dynamic_tool_group_inventory(sessions: list[Session]) -> list[dict[str, Any]]:
@@ -155,9 +183,7 @@ def provider_availability_diagnostics(sessions: list[Session]) -> dict[str, Any]
             canonical_provider = PROVIDER_ALIASES.get(provider, provider)
             providers[canonical_provider]["groups"] += 1
             providers[canonical_provider]["sessions"].add(session.session_id)
-            providers[canonical_provider]["tools"].update(
-                group.normalized_tool_names
-            )
+            providers[canonical_provider]["tools"].update(group.normalized_tool_names)
             group_is_github_like = any(
                 _github_like(value)
                 for value in (group.provider, group.name, group.identifier)
@@ -201,18 +227,22 @@ def provider_availability_diagnostics(sessions: list[Session]) -> dict[str, Any]
             continue
         provider, raw_name, normalized_name, match_type = match
         matched_advertised.add((provider, normalized_name))
-        mappings.append({
-            "runtime_tool": runtime_tool,
-            "advertised_tool": raw_name,
-            "provider": provider,
-            "match_type": match_type,
-        })
+        mappings.append(
+            {
+                "runtime_tool": runtime_tool,
+                "advertised_tool": raw_name,
+                "provider": provider,
+                "match_type": match_type,
+            }
+        )
 
-    unmatched_advertised = sorted({
-        normalized_name
-        for provider, _raw_name, normalized_name in advertised
-        if (provider, normalized_name) not in matched_advertised
-    })
+    unmatched_advertised = sorted(
+        {
+            normalized_name
+            for provider, _raw_name, normalized_name in advertised
+            if (provider, normalized_name) not in matched_advertised
+        }
+    )
     github_runtime = sorted(tool for tool in runtime_tools if _github_like(tool))
     github_mappings = [
         mapping
@@ -257,16 +287,16 @@ def provider_availability_diagnostics(sessions: list[Session]) -> dict[str, Any]
                 for mapping in github_mappings
                 if mapping["match_type"] == "normalized_or_alias"
             ),
-            "unresolved_mappings": sorted(
-                set(github_runtime) - matched_github_runtime
-            ),
+            "unresolved_mappings": sorted(set(github_runtime) - matched_github_runtime),
         },
     }
 
 
 def exposure_consistency(sessions: list[Session]) -> dict[str, int]:
     calls_without_direct_exposure = sum(
-        1 for session in sessions for tool in session.actual_calls
+        1
+        for session in sessions
+        for tool in session.actual_calls
         if tool not in session.directly_observed_exposure
     )
     return {

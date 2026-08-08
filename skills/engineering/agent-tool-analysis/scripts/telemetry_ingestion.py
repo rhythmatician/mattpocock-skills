@@ -19,13 +19,23 @@ from tool_definition_registry import (
 )
 
 IGNORED_PATTERNS = [
-    r"^turn_(start|end):?", r"^session_start$", r"^chat:",
-    r"^user_message$", r"^agent_response$", r".*Discovery$",
-    r"^Custom Instructions$", r"^Resolve Customizations$", r"^PreToolUse$",
+    r"^turn_(start|end):?",
+    r"^session_start$",
+    r"^chat:",
+    r"^user_message$",
+    r"^agent_response$",
+    r".*Discovery$",
+    r"^Custom Instructions$",
+    r"^Resolve Customizations$",
+    r"^PreToolUse$",
     r"^PostToolUse$",
 ]
 IGNORE_REGEX = re.compile("|".join(IGNORED_PATTERNS), re.IGNORECASE)
-TOOL_REMAP = {"memory": "vscode/memory", "runSubagent": "agent", "runTests": "execute/runTests"}
+TOOL_REMAP = {
+    "memory": "vscode/memory",
+    "runSubagent": "agent",
+    "runTests": "execute/runTests",
+}
 TOOL_NAME_REGEX = re.compile(
     r'"tool_name"\s*:\s*"([^"]+)"|'
     r'"(?:tool|function)"\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"'
@@ -96,7 +106,11 @@ def find_raw_tool_call(event: Any) -> str | None:
     if isinstance(value, str):
         return value
     item = event.get("item")
-    if isinstance(item, dict) and item.get("type") in {"function_call", "tool_call", "mcp_call"}:
+    if isinstance(item, dict) and item.get("type") in {
+        "function_call",
+        "tool_call",
+        "mcp_call",
+    }:
         value = item.get("name") or item.get("function")
         if isinstance(value, str):
             return value
@@ -113,8 +127,14 @@ def find_raw_tool_call(event: Any) -> str | None:
             if isinstance(value, str):
                 return value
         payload_type = str(payload_type or "").lower()
-        if any(part in payload_type for part in ("tool", "function", "call")) or "tool" in event or "tool_name" in event:
-            value = payload.get("name") or payload.get("tool") or payload.get("tool_name")
+        if (
+            any(part in payload_type for part in ("tool", "function", "call"))
+            or "tool" in event
+            or "tool_name" in event
+        ):
+            value = (
+                payload.get("name") or payload.get("tool") or payload.get("tool_name")
+            )
             if isinstance(value, str):
                 return value
     tool = event.get("tool")
@@ -142,15 +162,23 @@ def extract_tool_definitions(event: Any, runtime: str) -> list[DefinitionRecord]
         subset = {"name": raw_name}
         subset.update({key: node[key] for key in DEFINITION_KEYS if key in node})
         chars = canonical_json_length(subset)
-        records.append(DefinitionRecord(
-            normalized_name=name, runtime=runtime, provider="telemetry",
-            raw_name=raw_name,
-            description=node.get("description") if isinstance(node.get("description"), str) else None,
-            input_schema=node.get("inputSchema", node.get("input_schema")),
-            serialized_chars=chars, estimated_tokens=estimate_tokens_from_chars(chars),
-            source=f"telemetry:{runtime}", confidence="direct_telemetry",
-            evidence_type="recovered_definition",
-        ))
+        records.append(
+            DefinitionRecord(
+                normalized_name=name,
+                runtime=runtime,
+                provider="telemetry",
+                raw_name=raw_name,
+                description=node.get("description")
+                if isinstance(node.get("description"), str)
+                else None,
+                input_schema=node.get("inputSchema", node.get("input_schema")),
+                serialized_chars=chars,
+                estimated_tokens=estimate_tokens_from_chars(chars),
+                source=f"telemetry:{runtime}",
+                confidence="direct_telemetry",
+                evidence_type="recovered_definition",
+            )
+        )
     return records
 
 
@@ -214,17 +242,19 @@ def extract_codex_dynamic_tool_groups(event: Any) -> list[DynamicToolGroup]:
                 and tool["name"].strip()
                 and (normalized_name := normalize_tool_name(tool["name"]))
             )
-            groups.append(DynamicToolGroup(
-                path=path,
-                group_index=group_index,
-                group_keys=tuple(sorted(group)),
-                provider=normalize_provider_name(group.get("provider")),
-                name=normalize_provider_name(group.get("name")),
-                identifier=normalize_provider_name(group.get("id")),
-                tool_count=len(tools),
-                raw_tool_names=tuple(raw_name for raw_name, _ in named_tools),
-                normalized_tool_names=tuple(name for _, name in named_tools),
-            ))
+            groups.append(
+                DynamicToolGroup(
+                    path=path,
+                    group_index=group_index,
+                    group_keys=tuple(sorted(group)),
+                    provider=normalize_provider_name(group.get("provider")),
+                    name=normalize_provider_name(group.get("name")),
+                    identifier=normalize_provider_name(group.get("id")),
+                    tool_count=len(tools),
+                    raw_tool_names=tuple(raw_name for raw_name, _ in named_tools),
+                    normalized_tool_names=tuple(name for _, name in named_tools),
+                )
+            )
     return groups
 
 
@@ -240,18 +270,30 @@ def extract_codex_provider_metadata(event: Any) -> tuple[set[str], dict[str, set
     return providers, dict(provider_tools)
 
 
-def _prefer_definition(definitions: dict[str, DefinitionRecord], record: DefinitionRecord) -> None:
+def _prefer_definition(
+    definitions: dict[str, DefinitionRecord], record: DefinitionRecord
+) -> None:
     existing = definitions.get(record.normalized_name)
-    if existing is None or (record.serialized_chars is not None and (existing.serialized_chars is None or record.serialized_chars > existing.serialized_chars)):
+    if existing is None or (
+        record.serialized_chars is not None
+        and (
+            existing.serialized_chars is None
+            or record.serialized_chars > existing.serialized_chars
+        )
+    ):
         definitions[record.normalized_name] = record
 
 
-def get_vscode_sessions(workspace_storage: str) -> tuple[list[Session], dict[str, DefinitionRecord]]:
+def get_vscode_sessions(
+    workspace_storage: str,
+) -> tuple[list[Session], dict[str, DefinitionRecord]]:
     sessions: list[Session] = []
     definitions: dict[str, DefinitionRecord] = {}
     if not os.path.exists(workspace_storage):
         return sessions, definitions
-    pattern = os.path.join(workspace_storage, "*", "github.copilot-chat", "debug-logs", "*", "*.jsonl")
+    pattern = os.path.join(
+        workspace_storage, "*", "github.copilot-chat", "debug-logs", "*", "*.jsonl"
+    )
     for file_path in glob.glob(pattern, recursive=True):
         calls: list[str] = []
         try:
@@ -274,16 +316,26 @@ def get_vscode_sessions(workspace_storage: str) -> tuple[list[Session], dict[str
         except OSError:
             continue
         if calls:
-            sessions.append(Session(f"vscode:{os.path.relpath(file_path, workspace_storage)}", "vscode", calls=calls))
+            sessions.append(
+                Session(
+                    f"vscode:{os.path.relpath(file_path, workspace_storage)}",
+                    "vscode",
+                    calls=calls,
+                )
+            )
     return sessions, definitions
 
 
-def get_codex_sessions(sessions_dir: str) -> tuple[list[Session], dict[str, DefinitionRecord]]:
+def get_codex_sessions(
+    sessions_dir: str,
+) -> tuple[list[Session], dict[str, DefinitionRecord]]:
     sessions: list[Session] = []
     definitions: dict[str, DefinitionRecord] = {}
     if not os.path.exists(sessions_dir):
         return sessions, definitions
-    for file_path in glob.glob(os.path.join(sessions_dir, "**", "*.jsonl"), recursive=True):
+    for file_path in glob.glob(
+        os.path.join(sessions_dir, "**", "*.jsonl"), recursive=True
+    ):
         calls: list[str] = []
         exposed: set[str] = set()
         providers: set[str] = set()
@@ -303,7 +355,9 @@ def get_codex_sessions(sessions_dir: str) -> tuple[list[Session], dict[str, Defi
                             calls.append(name)
                     exposed.update(extract_codex_exposures(event))
                     dynamic_tool_groups.extend(extract_codex_dynamic_tool_groups(event))
-                    event_providers, event_tools = extract_codex_provider_metadata(event)
+                    event_providers, event_tools = extract_codex_provider_metadata(
+                        event
+                    )
                     providers.update(event_providers)
                     for provider, tools in event_tools.items():
                         provider_tools[provider].update(tools)
@@ -312,11 +366,18 @@ def get_codex_sessions(sessions_dir: str) -> tuple[list[Session], dict[str, Defi
         except OSError:
             continue
         if calls or exposed or dynamic_tool_groups:
-            sessions.append(Session(
-                f"codex:{os.path.relpath(file_path, sessions_dir)}", "codex",
-                calls=calls, exposed_tools=exposed,
-                provider_availability=providers, provider_tools=dict(provider_tools),
-                dynamic_tool_groups=dynamic_tool_groups,
-                exposure_source="codex:payload.dynamic_tools[].tools[].name" if exposed else "not_observed",
-            ))
+            sessions.append(
+                Session(
+                    f"codex:{os.path.relpath(file_path, sessions_dir)}",
+                    "codex",
+                    calls=calls,
+                    exposed_tools=exposed,
+                    provider_availability=providers,
+                    provider_tools=dict(provider_tools),
+                    dynamic_tool_groups=dynamic_tool_groups,
+                    exposure_source="codex:payload.dynamic_tools[].tools[].name"
+                    if exposed
+                    else "not_observed",
+                )
+            )
     return sessions, definitions

@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-
 DEFINITION_KEYS = {
     "description",
     "input_schema",
@@ -59,7 +58,9 @@ class ToolDefinitionProvider(ABC):
     def records(self) -> Iterable[DefinitionRecord]:
         """Return the definitions discovered by this provider."""
 
-    def resolve(self, normalized_name: str, runtime: str | None = None) -> DefinitionRecord | None:
+    def resolve(
+        self, normalized_name: str, runtime: str | None = None
+    ) -> DefinitionRecord | None:
         for record in self.records():
             if record.normalized_name == normalized_name and (
                 runtime is None or record.runtime == runtime
@@ -151,7 +152,9 @@ class ExplicitDefinitionProvider(MappingDefinitionProvider):
                 subset["description"] = description
             if input_schema is not None:
                 subset["inputSchema"] = input_schema
-            serialized_chars = canonical_json_length(subset) if len(subset) > 1 else None
+            serialized_chars = (
+                canonical_json_length(subset) if len(subset) > 1 else None
+            )
             estimated_tokens = tokens
             if estimated_tokens is None and serialized_chars is not None:
                 estimated_tokens = estimate_tokens_from_chars(serialized_chars)
@@ -345,7 +348,9 @@ def estimate_tokens_from_chars(char_count: int) -> int:
 
 def canonical_json_length(value: Any) -> int:
     try:
-        text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        text = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
     except (TypeError, ValueError):
         text = repr(value)
     return len(text)
@@ -367,7 +372,9 @@ class DefinitionRegistry:
     def __init__(self, providers: Iterable[ToolDefinitionProvider]) -> None:
         self.providers = tuple(providers)
 
-    def resolve(self, normalized_name: str, runtime: str | None = None) -> DefinitionRecord | None:
+    def resolve(
+        self, normalized_name: str, runtime: str | None = None
+    ) -> DefinitionRecord | None:
         candidates = []
         for provider_index, provider in enumerate(self.providers):
             for record in provider.records():
@@ -390,4 +397,3 @@ class DefinitionRegistry:
             for name in sorted(set(names))
             if (record := self.resolve(name, runtime)) is not None
         }
-

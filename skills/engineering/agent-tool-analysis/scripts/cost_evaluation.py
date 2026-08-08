@@ -75,9 +75,7 @@ def github_exposure_sensitivity(
         bool(session.tool_set & github_tools) for session in applicable_sessions
     )
     activation_rate = (
-        activation_sessions / len(applicable_sessions)
-        if applicable_sessions
-        else 0.0
+        activation_sessions / len(applicable_sessions) if applicable_sessions else 0.0
     )
     definition_tokens: dict[str, float | None] = {
         scenario: _scenario_cost_for_tools(stats, github_tools, scenario)
@@ -94,14 +92,10 @@ def github_exposure_sensitivity(
         )
         loaded_tokens[scenario] = loaded
         break_even_rates[scenario] = (
-            loaded / full_definition
-            if loaded is not None and full_definition
-            else None
+            loaded / full_definition if loaded is not None and full_definition else None
         )
 
-    known_break_even = [
-        rate for rate in break_even_rates.values() if rate is not None
-    ]
+    known_break_even = [rate for rate in break_even_rates.values() if rate is not None]
     if len(known_break_even) != len(COST_SCENARIOS):
         classification = "indeterminate"
     elif all(rate > 1.0 for rate in known_break_even):
@@ -117,9 +111,7 @@ def github_exposure_sensitivity(
         for scenario in COST_SCENARIOS:
             full_definition = definition_tokens[scenario]
             baseline = (
-                assumed_rate * full_definition
-                if full_definition is not None
-                else None
+                assumed_rate * full_definition if full_definition is not None else None
             )
             loaded = loaded_tokens[scenario]
             net = (
@@ -132,15 +124,15 @@ def github_exposure_sensitivity(
                 "loaded_specialist_tokens_per_session": loaded,
                 "net_token_reduction_per_session": net,
                 "relative_token_reduction": (
-                    net / baseline
-                    if net is not None and baseline
-                    else None
+                    net / baseline if net is not None and baseline else None
                 ),
             }
-        grid.append({
-            "assumed_exposure_rate": assumed_rate,
-            "scenarios": scenarios,
-        })
+        grid.append(
+            {
+                "assumed_exposure_rate": assumed_rate,
+                "scenarios": scenarios,
+            }
+        )
 
     return {
         "analysis_type": "diagnostic_sensitivity_not_telemetry",
@@ -178,9 +170,7 @@ def cluster_exposure_economics(
     activation_sessions = sum(
         bool(session.tool_set & specialist_tools) for session in sessions
     )
-    activation_rate = (
-        activation_sessions / session_count if session_count else 0.0
-    )
+    activation_rate = activation_sessions / session_count if session_count else 0.0
     definition_tokens = {
         scenario: _scenario_cost_for_tools(stats, specialist_tools, scenario)
         for scenario in COST_SCENARIOS
@@ -210,10 +200,7 @@ def cluster_exposure_economics(
             for session in sessions
         )
         average_exposed = (
-            sum(
-                len(exposed_by_session[session.session_id])
-                for session in sessions
-            )
+            sum(len(exposed_by_session[session.session_id]) for session in sessions)
             / session_count
             if session_count
             else 0.0
@@ -262,8 +249,7 @@ def cluster_exposure_economics(
         tool_rows = []
         for tool in sorted(specialist_tools):
             sessions_exposed = sum(
-                tool in exposed_by_session[session.session_id]
-                for session in sessions
+                tool in exposed_by_session[session.session_id] for session in sessions
             )
             sessions_called = sum(tool in session.tool_set for session in sessions)
             contribution = {}

@@ -20,7 +20,6 @@ from typing import Any, Iterable
 from telemetry_ingestion import normalize_tool_name
 from tool_definition_registry import DEFINITION_KEYS
 
-
 CALL_TYPES = {
     "custom_tool_call",
     "function_call",
