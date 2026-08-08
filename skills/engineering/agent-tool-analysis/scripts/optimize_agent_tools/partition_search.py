@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Iterable, Mapping
 
-from optimize_agent_tools.replay_harness import (
-    BASELINE_ARCHITECTURE_ID,
-)
 from optimize_agent_tools.exposure_models import (
     BaselineExposure,
     baseline_exposure_states,
+)
+from optimize_agent_tools.replay_harness import (
+    BASELINE_ARCHITECTURE_ID,
 )
 from optimize_agent_tools.telemetry_ingestion import (
     Session,
@@ -93,18 +93,18 @@ def _cost(stat: Any) -> float | None:
 
 def _sum_known(costs: Iterable[float | None]) -> float | None:
     values = list(costs)
-    return sum(value for value in values if value is not None) if all(
-        value is not None for value in values
-    ) else None
+    return (
+        sum(value for value in values if value is not None)
+        if all(value is not None for value in values)
+        else None
+    )
 
 
 def _pair_key(left: str, right: str) -> tuple[str, str]:
     return (left, right) if left <= right else (right, left)
 
 
-def _observed_surface(
-    session: Session, exposure: BaselineExposure
-) -> set[str] | None:
+def _observed_surface(session: Session, exposure: BaselineExposure) -> set[str] | None:
     if (
         session.exposure_source == "not_observed"
         and not session.exposed_tools
@@ -152,7 +152,9 @@ def _dependency_closure(
 
 
 def _dependency_units(
-    tools: frozenset[str], dependencies: Mapping[str, Iterable[str]], global_tools: frozenset[str]
+    tools: frozenset[str],
+    dependencies: Mapping[str, Iterable[str]],
+    global_tools: frozenset[str],
 ) -> tuple[frozenset[str], ...]:
     """Make disjoint units so every partition is dependency closed."""
     specialist_tools = set(tools - global_tools)
@@ -181,11 +183,7 @@ def _dependency_units(
 
 
 def _unit_affinity(left: frozenset[str], right: frozenset[str], graph: _Graph) -> float:
-    values = [
-        graph.pair_weights.get(_pair_key(a, b), 0.0)
-        for a in left
-        for b in right
-    ]
+    values = [graph.pair_weights.get(_pair_key(a, b), 0.0) for a in left for b in right]
     return sum(values) / len(values) if values else 0.0
 
 
@@ -203,9 +201,11 @@ def _set_partitions(
         yield ((first,), *partition)
     for partition in _set_partitions(rest, agent_count):
         for index in range(agent_count):
-            yield partition[:index] + (
-                (first, *partition[index]),
-            ) + partition[index + 1 :]
+            yield (
+                partition[:index]
+                + ((first, *partition[index]),)
+                + partition[index + 1 :]
+            )
 
 
 def _stirling_second_kind(item_count: int, agent_count: int) -> int:
@@ -213,7 +213,9 @@ def _stirling_second_kind(item_count: int, agent_count: int) -> int:
     table[0][0] = 1
     for item in range(1, item_count + 1):
         for count in range(1, min(item, agent_count) + 1):
-            table[item][count] = table[item - 1][count - 1] + count * table[item - 1][count]
+            table[item][count] = (
+                table[item - 1][count - 1] + count * table[item - 1][count]
+            )
     return table[item_count][agent_count]
 
 
@@ -237,7 +239,10 @@ def _heuristic_partitions(
             index = max(
                 range(agent_count),
                 key=lambda candidate: (
-                    sum(_unit_affinity(unit, member, graph) for member in groups[candidate]),
+                    sum(
+                        _unit_affinity(unit, member, graph)
+                        for member in groups[candidate]
+                    ),
                     -candidate,
                 ),
             )
@@ -253,7 +258,7 @@ def _heuristic_partitions(
 
 
 def _partition_tools(
-    partition: tuple[tuple[frozenset[str], ...], ...]
+    partition: tuple[tuple[frozenset[str], ...], ...],
 ) -> tuple[tuple[str, ...], ...]:
     return tuple(
         tuple(sorted(tool for unit in group for tool in unit)) for group in partition
@@ -310,8 +315,7 @@ def _candidate_metrics(
     exposure_model: str,
 ) -> PartitionCandidate:
     costs: tuple[float | None, ...] = tuple(
-        _sum_known(_cost(stats.get(tool)) for tool in tools)
-        for tools in agent_tools
+        _sum_known(_cost(stats.get(tool)) for tool in tools) for tools in agent_tools
     )
     ownership = {
         tool: index for index, tools in enumerate(agent_tools) for tool in tools
@@ -324,28 +328,20 @@ def _candidate_metrics(
     context_before: list[float | None] = []
     context_after: list[float | None] = []
     for session in sessions:
-        called_agents = {
-            ownership[tool]
-            for tool in session.calls
-            if tool in ownership
-        }
+        called_agents = {ownership[tool] for tool in session.calls if tool in ownership}
         for index in called_agents:
             activation_counts[index] += 1
         if len(called_agents) > 1:
             cross_sessions += 1
         ordered_agents = [
-            ownership[tool]
-            for tool in session.calls
-            if tool in ownership
+            ownership[tool] for tool in session.calls if tool in ownership
         ]
         handoffs += sum(
             left != right for left, right in zip(ordered_agents, ordered_agents[1:])
         )
         delegation_count += max(len(called_agents) - 1, 0)
 
-        surface = _observed_surface(
-            session, exposure_states[session.session_id]
-        )
+        surface = _observed_surface(session, exposure_states[session.session_id])
         if surface is None:
             context_before.append(None)
             context_after.append(None)
@@ -358,8 +354,7 @@ def _candidate_metrics(
 
     session_count = len(sessions)
     rates = tuple(
-        count / session_count if session_count else 0.0
-        for count in activation_counts
+        count / session_count if session_count else 0.0 for count in activation_counts
     )
     before_cost = (
         sum(value for value in context_before if value is not None) / session_count
@@ -380,7 +375,9 @@ def _candidate_metrics(
         if after is not None
         else None
     )
-    complete = all(cost is not None for cost in costs) and after_communication is not None
+    complete = (
+        all(cost is not None for cost in costs) and after_communication is not None
+    )
     return PartitionCandidate(
         architecture_id=architecture_id,
         agent_tools=agent_tools,
@@ -412,8 +409,14 @@ def _pareto(candidates: list[PartitionCandidate]) -> tuple[PartitionCandidate, .
     frontier: list[PartitionCandidate] = []
     for candidate in eligible:
         dominated = any(
-            all(getattr(other, key) <= getattr(candidate, key) for key in PARETO_DIMENSIONS)
-            and any(getattr(other, key) < getattr(candidate, key) for key in PARETO_DIMENSIONS)
+            all(
+                getattr(other, key) <= getattr(candidate, key)
+                for key in PARETO_DIMENSIONS
+            )
+            and any(
+                getattr(other, key) < getattr(candidate, key)
+                for key in PARETO_DIMENSIONS
+            )
             for other in eligible
             if other.architecture_id != candidate.architecture_id
         )
@@ -458,8 +461,14 @@ def search_partitions(
         for tool, values in (dependencies or {}).items()
     }
     global_set = _strings(global_tools, "global_tools")
-    observed_tools = frozenset(tool for session in session_list for tool in session.tool_set)
-    roots = _strings(required_tools, "required_tools") if required_tools is not None else observed_tools
+    observed_tools = frozenset(
+        tool for session in session_list for tool in session.tool_set
+    )
+    roots = (
+        _strings(required_tools, "required_tools")
+        if required_tools is not None
+        else observed_tools
+    )
     required_retained = _dependency_closure(roots, dependencies)
     global_surface = _dependency_closure(global_set, dependencies)
     retained = required_retained | global_surface
@@ -513,7 +522,9 @@ def search_partitions(
         )
         for candidate in all_candidates
     )
-    marked_frontier = tuple(candidate for candidate in marked_all if candidate.is_pareto_optimal)
+    marked_frontier = tuple(
+        candidate for candidate in marked_all if candidate.is_pareto_optimal
+    )
     architectures: list[dict[str, Any]] = [
         {
             "architecture_id": BASELINE_ARCHITECTURE_ID,
@@ -558,7 +569,9 @@ def search_partitions(
             "pareto_dimensions": list(PARETO_DIMENSIONS),
         },
         "candidates": [_candidate_dict(candidate) for candidate in marked_all],
-        "pareto_candidate_ids": [candidate.architecture_id for candidate in marked_frontier],
+        "pareto_candidate_ids": [
+            candidate.architecture_id for candidate in marked_frontier
+        ],
         "pareto_scope": pareto_scope,
         "search_strategy": "exhaustive" if exhaustive else "bounded",
         "search_provenance": search_provenance,
@@ -573,4 +586,3 @@ def search_partitions(
         pareto_scope,
         "exhaustive" if exhaustive else "bounded",
     )
-

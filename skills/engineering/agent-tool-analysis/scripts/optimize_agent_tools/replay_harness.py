@@ -52,9 +52,7 @@ class ArchitectureManifest:
 
     def __post_init__(self) -> None:
         if self.baseline_architecture_id != BASELINE_ARCHITECTURE_ID:
-            raise ValueError(
-                "The manifest baseline must be pruned_flat_baseline."
-            )
+            raise ValueError("The manifest baseline must be pruned_flat_baseline.")
         architecture_ids = [
             architecture.architecture_id for architecture in self.architectures
         ]
@@ -182,6 +180,7 @@ class ReplayAggregate:
         """Total explicit delegation and inter-agent communication cost."""
         return self.delegation_tokens + self.inter_agent_communication_tokens
 
+
 @dataclass(frozen=True)
 class ReplayResult:
     architecture_id: str
@@ -274,7 +273,10 @@ def _aggregate(
         routing_failures += int(observation.routing_failure or bool(unsupported))
         missed += int(
             observation.missed_agent_activation
-            or (bool(expected_path) and observation.agent_activation_path != expected_path)
+            or (
+                bool(expected_path)
+                and observation.agent_activation_path != expected_path
+            )
         )
         unnecessary += int(observation.unnecessary_agent_activation)
         unnecessary += sum(
@@ -316,15 +318,13 @@ def _aggregate(
             observation.total_input_tokens for observation in observations
         ),
         tool_definition_context_tokens=sum(
-            observation.tool_definition_context_tokens
-            for observation in observations
+            observation.tool_definition_context_tokens for observation in observations
         ),
         delegation_tokens=sum(
             observation.delegation_tokens for observation in observations
         ),
         inter_agent_communication_tokens=sum(
-            observation.inter_agent_communication_tokens
-            for observation in observations
+            observation.inter_agent_communication_tokens for observation in observations
         ),
         turns=sum(observation.turns for observation in observations),
         agent_activations=sum(len(path) for path in actual_paths),

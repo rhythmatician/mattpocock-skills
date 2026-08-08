@@ -20,9 +20,7 @@ def manifest_raw() -> dict:
     baseline_tools = ["exec"]
     return {
         "baseline_architecture_id": BASELINE_ARCHITECTURE_ID,
-        "historical_tool_capability_tools": sorted(
-            baseline_tools
-        ),
+        "historical_tool_capability_tools": sorted(baseline_tools),
         "architectures": [
             {
                 "architecture_id": BASELINE_ARCHITECTURE_ID,
@@ -140,7 +138,9 @@ def test_historical_and_observed_capability_coverage_are_separate() -> None:
 
 def test_strict_gate_uses_historical_coverage_quality_and_context() -> None:
     baseline_architecture = build_architecture_manifest(manifest_raw()).architectures[0]
-    candidate_architecture = build_architecture_manifest(manifest_raw()).architectures[1]
+    candidate_architecture = build_architecture_manifest(manifest_raw()).architectures[
+        1
+    ]
     tasks = [ReplayTask("task")]
     baseline = replay_recorded_observations(
         tasks,

@@ -46,8 +46,7 @@ def test_normal_analysis_workflow_includes_generic_specialist_recommendation() -
         Session("two", "codex", ["a"], {"a", "b"}),
     ]
     definitions = {
-        name: _definition(name, tokens)
-        for name, tokens in {"a": 10, "b": 20}.items()
+        name: _definition(name, tokens) for name, tokens in {"a": 10, "b": 20}.items()
     }
 
     report = analyze(
@@ -106,9 +105,7 @@ def test_search_generates_closed_manifest_candidates_and_metrics() -> None:
             continue
         assigned = set(architecture["parent_tools"])
         assigned.update(
-            tool
-            for tools in architecture["agents"].values()
-            for tool in tools
+            tool for tools in architecture["agents"].values() for tool in tools
         )
         assert set(result.manifest["historical_tool_capability_tools"]) <= assigned
         assert architecture["parent_tools"] == ["shared"]
@@ -149,12 +146,12 @@ def test_search_retains_only_non_dominated_candidates_in_frontier() -> None:
 
     assert result.pareto_candidates
     assert all(candidate.is_pareto_optimal for candidate in result.pareto_candidates)
-    assert {
-        candidate.architecture_id for candidate in result.pareto_candidates
-    } <= {candidate.architecture_id for candidate in result.all_candidates}
-    assert len({candidate.architecture_id for candidate in result.pareto_candidates}) == len(
-        result.pareto_candidates
-    )
+    assert {candidate.architecture_id for candidate in result.pareto_candidates} <= {
+        candidate.architecture_id for candidate in result.all_candidates
+    }
+    assert len(
+        {candidate.architecture_id for candidate in result.pareto_candidates}
+    ) == len(result.pareto_candidates)
 
 
 def test_generated_manifest_uses_the_run_baseline() -> None:
@@ -183,7 +180,9 @@ def test_missing_observed_exposure_is_not_treated_as_zero_context() -> None:
     assert candidate.is_cost_complete is False
 
 
-def test_delegation_excludes_initial_handling_agent_and_keeps_handoffs_separate() -> None:
+def test_delegation_excludes_initial_handling_agent_and_keeps_handoffs_separate() -> (
+    None
+):
     result = search_partitions(
         sessions=[Session("one", "codex", ["a", "b"], {"a", "b"})],
         stats=_stats(),
@@ -221,8 +220,7 @@ def test_search_reports_pareto_scope_for_exhaustive_and_bounded_search() -> None
     assert exhaustive.search_strategy == "exhaustive"
     assert exhaustive.report["search"]["pareto_scope"] == "global"
     assert all(
-        candidate.pareto_scope == "global"
-        for candidate in exhaustive.pareto_candidates
+        candidate.pareto_scope == "global" for candidate in exhaustive.pareto_candidates
     )
     assert bounded.pareto_scope == "evaluated_subset"
     assert bounded.search_strategy == "bounded"
@@ -262,9 +260,7 @@ def test_global_tool_dependencies_stay_on_parent_surface() -> None:
     )
 
     candidate = next(
-        candidate
-        for candidate in result.all_candidates
-        if candidate.agent_count == 1
+        candidate for candidate in result.all_candidates if candidate.agent_count == 1
     )
     assert candidate.parent_tools == ("shared", "shared_dep")
     assert candidate.agent_tools == (("other",),)

@@ -226,9 +226,7 @@ def test_codex_exposure_extractor_uses_dynamic_tool_definitions_only() -> None:
         "github.fetch_pr",
     }
     assert (
-        extract_codex_exposures(
-            {"payload": {"type": "function_call", "name": "exec"}}
-        )
+        extract_codex_exposures({"payload": {"type": "function_call", "name": "exec"}})
         == set()
     )
 
@@ -252,9 +250,7 @@ def test_codex_provider_metadata_requires_named_dynamic_tool_group() -> None:
     providers, provider_tools = extract_codex_provider_metadata(event)
 
     assert providers == {"github"}
-    assert provider_tools == {
-        "github": {"github.fetch_issue", "github.fetch_pr"}
-    }
+    assert provider_tools == {"github": {"github.fetch_issue", "github.fetch_pr"}}
 
 
 def test_dynamic_tool_group_inventory_is_structural_and_privacy_safe() -> None:
@@ -456,7 +452,9 @@ def test_cluster_boundary_metrics_reports_exclusive_and_overlapping_coverage() -
     assert metrics["overlapping_session_coverage"] == 1 / 3
 
 
-def test_session_population_summary_keeps_call_and_exposure_denominators_separate() -> None:
+def test_session_population_summary_keeps_call_and_exposure_denominators_separate() -> (
+    None
+):
     sessions = [
         Session("call", "codex", ["exec"], set()),
         Session("both", "codex", ["exec"], {"exec"}),
@@ -494,16 +492,43 @@ def test_registry_precedence_preserves_unresolved_tools() -> None:
     )
 
     telemetry = DefinitionRecord(
-        "exec", "codex", "telemetry", "exec", "telemetry", {}, 40, 10,
-        "telemetry:codex", "direct_telemetry", "recovered_definition",
+        "exec",
+        "codex",
+        "telemetry",
+        "exec",
+        "telemetry",
+        {},
+        40,
+        10,
+        "telemetry:codex",
+        "direct_telemetry",
+        "recovered_definition",
     )
     manifest = DefinitionRecord(
-        "exec", "codex", "runtime_manifest", "exec", "manifest", {}, 80, 20,
-        "manifest.json", "direct_manifest", "advertised_definition",
+        "exec",
+        "codex",
+        "runtime_manifest",
+        "exec",
+        "manifest",
+        {},
+        80,
+        20,
+        "manifest.json",
+        "direct_manifest",
+        "advertised_definition",
     )
     explicit = DefinitionRecord(
-        "exec", "any", "explicit", "exec", None, None, None, 30,
-        "explicit.json", "explicit", "user_supplied_cost",
+        "exec",
+        "any",
+        "explicit",
+        "exec",
+        None,
+        None,
+        None,
+        30,
+        "explicit.json",
+        "explicit",
+        "user_supplied_cost",
     )
     registry = DefinitionRegistry(
         [
@@ -551,7 +576,11 @@ def test_unresolved_cost_estimates_are_separate_empirical_quantiles() -> None:
 
     unknown = stats["unknown"]
     assert unknown.definition_tokens is None
-    assert (unknown.estimated_cost_low, unknown.estimated_cost_mid, unknown.estimated_cost_high) == (
+    assert (
+        unknown.estimated_cost_low,
+        unknown.estimated_cost_mid,
+        unknown.estimated_cost_high,
+    ) == (
         12.5,
         15.0,
         17.5,
@@ -606,8 +635,14 @@ def test_cost_scenarios_measure_raw_cluster_reduction() -> None:
         "absolute_token_reduction_per_session": 5.0,
         "relative_token_reduction": 0.25,
     }
-    assert scenarios["low"]["baseline_tokens_per_session"] <= scenarios["high"]["baseline_tokens_per_session"]
-    assert scenarios["low"]["proposed_tokens_per_session"] <= scenarios["high"]["proposed_tokens_per_session"]
+    assert (
+        scenarios["low"]["baseline_tokens_per_session"]
+        <= scenarios["high"]["baseline_tokens_per_session"]
+    )
+    assert (
+        scenarios["low"]["proposed_tokens_per_session"]
+        <= scenarios["high"]["proposed_tokens_per_session"]
+    )
 
 
 def _variant_test_stats() -> dict[str, pipeline.ToolStat]:
@@ -708,9 +743,7 @@ def test_boundary_pruning_keeps_pruned_tools_on_parent() -> None:
 
 
 def test_variants_preserve_historical_called_tool_coverage() -> None:
-    sessions = [
-        Session("one", "codex", ["a", "b", "c"], {"a", "b", "c"})
-    ]
+    sessions = [Session("one", "codex", ["a", "b", "c"], {"a", "b", "c"})]
     definitions = {
         name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
@@ -726,9 +759,7 @@ def test_variants_preserve_historical_called_tool_coverage() -> None:
         delegation_overhead_tokens=0,
     )
 
-    assert all(
-        item["historical_called_tool_coverage_rate"] == 1.0 for item in result
-    )
+    assert all(item["historical_called_tool_coverage_rate"] == 1.0 for item in result)
 
 
 def test_cluster_one_subsets_are_exhaustive_and_keep_reference() -> None:
@@ -768,8 +799,7 @@ def test_cluster_one_subsets_are_exhaustive_and_keep_reference() -> None:
         ("a", "b", "c"),
     }
     assert all(
-        row["historical_called_tool_coverage_rate"] == 1.0
-        for row in result["subsets"]
+        row["historical_called_tool_coverage_rate"] == 1.0 for row in result["subsets"]
     )
 
     pair = next(row for row in result["subsets"] if row["tools"] == ["a", "b"])
@@ -986,7 +1016,11 @@ def test_pruned_flat_baseline_report_labels_observed_savings_separately() -> Non
         "definition_discovery": {
             "explicit_records": 0,
             "telemetry_records": 0,
-            "runtime_manifest": {"roots": [], "files_scanned": 0, "definitions_found": 0},
+            "runtime_manifest": {
+                "roots": [],
+                "files_scanned": 0,
+                "definitions_found": 0,
+            },
         },
         "tools": [],
         "candidate_agents": [],
@@ -1034,9 +1068,14 @@ def test_pruned_flat_baseline_report_labels_observed_savings_separately() -> Non
     markdown = render_markdown(report)
 
     assert markdown.index("## Recommendation") < markdown.index("## Corpus")
-    assert "Observed dead-tool savings: 50.0 known tool-definition tokens/session" in markdown
+    assert (
+        "Observed dead-tool savings: 50.0 known tool-definition tokens/session"
+        in markdown
+    )
     assert "Catalog tokens removed: 90.0" in markdown
-    assert "Catalog-only safe candidates: 1 tools; exposure benefit unmeasured" in markdown
+    assert (
+        "Catalog-only safe candidates: 1 tools; exposure benefit unmeasured" in markdown
+    )
     assert "Unresolved retained runtime-tool exposure: unknown" in markdown
 
 
@@ -1261,9 +1300,7 @@ def test_exposure_matrix_is_sparse() -> None:
 def test_called_tools_never_become_directly_observed_exposure() -> None:
     session = Session("one", "codex", ["called_only"])
 
-    state = baseline_exposure_states(
-        [session], "all_runtime_tools"
-    )[session.session_id]
+    state = baseline_exposure_states([session], "all_runtime_tools")[session.session_id]
 
     assert state.actual_calls == frozenset({"called_only"})
     assert state.directly_observed_exposure == frozenset()
@@ -1378,7 +1415,9 @@ def test_provider_scoped_does_not_infer_called_only_dotted_tools() -> None:
     assert states["available"].inferred_baseline_exposure == frozenset()
 
 
-def test_sensitivity_summary_uses_all_models_but_sign_stability_uses_decision_models() -> None:
+def test_sensitivity_summary_uses_all_models_but_sign_stability_uses_decision_models() -> (
+    None
+):
     scenarios = {
         model: {
             "mid": {"relative_token_reduction": value},
@@ -1454,7 +1493,9 @@ def test_cluster_exposure_economics_reports_break_even_and_tool_contributions() 
     assert observed["average_specialist_tools_exposed_per_session"] == 1.0
     assert observed["baseline_specialist_tokens_per_session"]["mid"] == 50 / 3
     assert observed["loaded_specialist_tokens_per_session"]["mid"] == 20.0
-    assert observed["net_specialist_token_reduction_per_session"]["mid"] == pytest.approx(-10 / 3)
+    assert observed["net_specialist_token_reduction_per_session"][
+        "mid"
+    ] == pytest.approx(-10 / 3)
     assert observed["break_even_baseline_tokens_per_session"]["mid"] == 20.0
     assert observed["break_even_full_cluster_exposure_rate"]["mid"] == 2 / 3
 
@@ -1462,7 +1503,9 @@ def test_cluster_exposure_economics_reports_break_even_and_tool_contributions() 
     assert one["sessions_baseline_exposed"] == 1
     assert one["exposure_rate"] == 1 / 3
     assert one["sessions_called"] == 1
-    assert observed["net_specialist_token_reduction_per_session"]["mid"] == pytest.approx(-10 / 3)
+    assert observed["net_specialist_token_reduction_per_session"][
+        "mid"
+    ] == pytest.approx(-10 / 3)
     assert one["baseline_token_contribution"]["mid"] == 10 / 3
 
 
