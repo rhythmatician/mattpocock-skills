@@ -1,16 +1,7 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
-
-ROOT = Path(__file__).parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from replay_architectures import build_report  # noqa: E402
-from replay_harness import (  # noqa: E402
+from optimize_agent_tools.replay_harness import (  # noqa: E402
     BASELINE_ARCHITECTURE_ID,
     FROZEN_PRUNED_FLAT_BASELINE_TOOLS,
     ReplayObservation,
@@ -21,7 +12,7 @@ from replay_harness import (  # noqa: E402
     replay_recorded_observations,
     run_replay,
 )
-
+from replay_architectures import build_report  # noqa: E402
 
 HISTORICAL_TOOLS = frozenset({"exec", "review_tool", "file_tool"})
 

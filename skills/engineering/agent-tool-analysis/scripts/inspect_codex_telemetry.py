@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from telemetry_ingestion import normalize_tool_name
-from tool_definition_registry import DEFINITION_KEYS
+from optimize_agent_tools.telemetry_ingestion import normalize_tool_name
+from optimize_agent_tools.tool_definition_registry import DEFINITION_KEYS
 
 CALL_TYPES = {
     "custom_tool_call",

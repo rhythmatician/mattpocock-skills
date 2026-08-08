@@ -68,7 +68,7 @@ Prefer the analyzer shipped with this skill.
 Expected script:
 
 ```text
-scripts/optimize_agent_tools.py
+scripts/optimize_agent_tools
 ```
 
 Resolve the script relative to this `SKILL.md` rather than assuming the user's current working directory.
@@ -82,13 +82,13 @@ Run the analyzer without requiring the user to configure telemetry paths manuall
 Preferred form:
 
 ```bash
-uv run python <skill-dir>/scripts/optimize_agent_tools.py
+uv run python <skill-dir>/scripts/optimize_agent_tools
 ```
 
 If `uv` is unavailable, use an appropriate available Python interpreter:
 
 ```bash
-python <skill-dir>/scripts/optimize_agent_tools.py
+python <skill-dir>/scripts/optimize_agent_tools
 ```
 
 Do not ask the user for telemetry directories before attempting the analyzer's built-in defaults.

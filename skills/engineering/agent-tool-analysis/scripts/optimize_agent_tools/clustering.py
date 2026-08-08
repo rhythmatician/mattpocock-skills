@@ -6,7 +6,7 @@ import statistics
 from collections import Counter, defaultdict
 from typing import Iterable
 
-from telemetry_ingestion import Session
+from .telemetry_ingestion import Session
 
 
 def build_session_index(sessions: list[Session]) -> dict[str, set[int]]:

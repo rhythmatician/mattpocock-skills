@@ -6,15 +6,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
-from analysis_pipeline import (
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from optimize_agent_tools.analysis_pipeline import (
     DEFAULT_GITHUB_EXPOSURE_RATES,
     analyze,
     load_explicit_tool_costs,
 )
-from reporting import print_summary, render_markdown
-from telemetry_ingestion import get_codex_sessions, get_vscode_sessions
+from optimize_agent_tools.reporting import print_summary, render_markdown
+from optimize_agent_tools.telemetry_ingestion import (
+    get_codex_sessions,
+    get_vscode_sessions,
+)
 
 DEFAULT_VSCODE_WORKSPACE_STORAGE = os.path.expanduser(
     r"~\AppData\Roaming\Code\User\workspaceStorage"

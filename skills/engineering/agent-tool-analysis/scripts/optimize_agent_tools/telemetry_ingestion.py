@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from tool_definition_registry import (
+from .tool_definition_registry import (
     DEFINITION_KEYS,
     DefinitionRecord,
     canonical_json_length,

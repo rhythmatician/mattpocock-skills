@@ -5,8 +5,8 @@ from __future__ import annotations
 import statistics
 from typing import Any, Iterable, Mapping
 
-from exposure_models import EXPOSURE_MODELS, baseline_exposure_states
-from telemetry_ingestion import Session
+from .exposure_models import EXPOSURE_MODELS, baseline_exposure_states
+from .telemetry_ingestion import Session
 
 COST_SCENARIOS = ("low", "mid", "high")
 DEFAULT_GITHUB_EXPOSURE_RATES = (

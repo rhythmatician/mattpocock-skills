@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from replay_harness import (
+from optimize_agent_tools.replay_harness import (
     ArchitectureManifest,
     ReplayObservation,
     ReplayTask,
@@ -78,9 +78,7 @@ def _observation(raw: dict[str, Any]) -> ReplayObservation:
     return ReplayObservation(
         task_id=raw["task_id"],
         task_success=raw["task_success"],
-        observed_replay_capability_covered=raw[
-            "observed_replay_capability_covered"
-        ],
+        observed_replay_capability_covered=raw["observed_replay_capability_covered"],
         quality_score=raw["quality_score"],
         agent_activation_path=tuple(raw_path),
         tool_call_failures=raw["tool_call_failures"],
@@ -99,7 +97,9 @@ def _observation(raw: dict[str, Any]) -> ReplayObservation:
 def _task(raw: dict[str, Any], architecture_ids: tuple[str, ...]) -> ReplayTask:
     raw_paths = raw.get("activation_paths", {})
     if not isinstance(raw_paths, dict):
-        raise ValueError(f"Task {raw.get('task_id', '<unknown>')!r} paths must be an object.")
+        raise ValueError(
+            f"Task {raw.get('task_id', '<unknown>')!r} paths must be an object."
+        )
     unknown = set(raw_paths) - set(architecture_ids)
     if unknown:
         raise ValueError(
@@ -202,7 +202,9 @@ def build_report(
 
     baseline = results[manifest.baseline_architecture_id]
     comparisons = {
-        architecture_id: compare_to_benchmark(baseline, results[architecture_id]).__dict__
+        architecture_id: compare_to_benchmark(
+            baseline, results[architecture_id]
+        ).__dict__
         for architecture_id in manifest.architecture_ids
         if architecture_id != manifest.baseline_architecture_id
     }
@@ -227,12 +229,8 @@ def build_report(
 
 def main() -> int:
     args = parse_args()
-    benchmark = json.loads(
-        Path(args.benchmark_report).read_text(encoding="utf-8")
-    )
-    manifest = json.loads(
-        Path(args.architecture_manifest).read_text(encoding="utf-8")
-    )
+    benchmark = json.loads(Path(args.benchmark_report).read_text(encoding="utf-8"))
+    manifest = json.loads(Path(args.architecture_manifest).read_text(encoding="utf-8"))
     bundle = json.loads(Path(args.replay_input).read_text(encoding="utf-8"))
     report = build_report(bundle, benchmark, manifest)
     rendered = json.dumps(report, indent=2, ensure_ascii=False)

@@ -1,13 +1,27 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 from typing import Any
 
+import inspect_codex_telemetry as inspector
 import pytest
-from tool_definition_registry import DefinitionRecord
-from telemetry_ingestion import (
+from optimize_agent_tools import analysis_pipeline as pipeline
+from optimize_agent_tools.clustering import (
+    build_session_index,
+    cluster_boundary_metrics,
+    tool_boundary_metrics,
+)
+from optimize_agent_tools.cost_evaluation import cluster_exposure_economics
+from optimize_agent_tools.exposure_models import (
+    baseline_exposure_states,
+    provider_availability_diagnostics,
+)
+from optimize_agent_tools.exposure_reporting import (
+    build_exposure_matrix,
+    exposure_matrix_summary,
+)
+from optimize_agent_tools.reporting import render_markdown
+from optimize_agent_tools.telemetry_ingestion import (
     DynamicToolGroup,
     Session,
     extract_codex_calls,
@@ -17,36 +31,7 @@ from telemetry_ingestion import (
     find_raw_tool_call,
     normalize_tool_name,
 )
-from exposure_models import baseline_exposure_states, provider_availability_diagnostics
-from cost_evaluation import cluster_exposure_economics
-from clustering import (
-    build_session_index,
-    cluster_boundary_metrics,
-    tool_boundary_metrics,
-)
-from exposure_reporting import build_exposure_matrix, exposure_matrix_summary
-from reporting import render_markdown
-
-ROOT = Path(__file__).parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-
-def _load_module(name: str, filename: str) -> Any:
-    path = ROOT / "tmp" / filename
-    if not path.exists():
-        path = ROOT / filename
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-pipeline = _load_module("analysis_pipeline", "analysis_pipeline.py")
-sys.modules["analysis_pipeline"] = pipeline
-inspector = _load_module("inspect_codex_telemetry", "inspect_codex_telemetry.py")
+from optimize_agent_tools.tool_definition_registry import DefinitionRecord
 
 
 def make_definition(
@@ -502,7 +487,7 @@ def test_usage_rate_uses_call_bearing_sessions_only() -> None:
 
 
 def test_registry_precedence_preserves_unresolved_tools() -> None:
-    from tool_definition_registry import (
+    from optimize_agent_tools.tool_definition_registry import (
         DefinitionRecord,
         DefinitionRegistry,
         MappingDefinitionProvider,
@@ -534,18 +519,18 @@ def test_registry_precedence_preserves_unresolved_tools() -> None:
 
 def test_definition_record_preserves_unknown_estimated_tokens() -> None:
     definition = DefinitionRecord(
-            "unknown",
-            "codex",
-            "runtime_manifest",
-            "unknown",
-            None,
-            None,
-            None,
-            None,
-            "manifest.json",
-            "unresolved",
-            "unresolved",
-        )
+        "unknown",
+        "codex",
+        "runtime_manifest",
+        "unknown",
+        None,
+        None,
+        None,
+        None,
+        "manifest.json",
+        "unresolved",
+        "unresolved",
+    )
 
     assert definition.estimated_tokens is None
     assert definition.serialized_chars is None
@@ -1210,7 +1195,7 @@ def test_baseline_variant_always_reports_zero_reduction() -> None:
         delegation_overhead_tokens=100,
     )[0]
 
-    from cost_evaluation import COST_SCENARIOS
+    from optimize_agent_tools.cost_evaluation import COST_SCENARIOS
 
     for scenario in COST_SCENARIOS:
         metrics = baseline["scenarios"][scenario]
@@ -1224,7 +1209,7 @@ def test_baseline_variant_always_reports_zero_reduction() -> None:
 def test_manifest_provider_recovers_advertised_definition_without_fabrication(
     tmp_path: Path,
 ) -> None:
-    from tool_definition_registry import ManifestDefinitionProvider
+    from optimize_agent_tools.tool_definition_registry import ManifestDefinitionProvider
 
     manifest = tmp_path / "mcp-tools.json"
     manifest.write_text(

@@ -9,7 +9,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from clustering import (
+from .clustering import (
     agglomerative_clusters,
     all_pair_metrics,
     build_adjacency_counts,
@@ -18,14 +18,14 @@ from clustering import (
     cluster_internal_affinity,
     tool_boundary_metrics,
 )
-from cost_evaluation import (
+from .cost_evaluation import (
     COST_SCENARIOS,
     DEFAULT_GITHUB_EXPOSURE_RATES,
     cluster_exposure_economics,
     github_exposure_sensitivity,
     scenario_cost,
 )
-from exposure_models import (
+from .exposure_models import (
     EXPOSURE_MODELS,
     baseline_exposure_states,
     dynamic_tool_group_inventory,
@@ -34,9 +34,9 @@ from exposure_models import (
     provider_availability_diagnostics,
     provider_scoped_session_diagnostics,
 )
-from exposure_reporting import build_exposure_matrix, exposure_matrix_summary
-from telemetry_ingestion import Session, normalize_tool_name
-from tool_definition_registry import (
+from .exposure_reporting import build_exposure_matrix, exposure_matrix_summary
+from .telemetry_ingestion import Session, normalize_tool_name
+from .tool_definition_registry import (
     DefinitionRecord,
     DefinitionRegistry,
     ExplicitDefinitionProvider,

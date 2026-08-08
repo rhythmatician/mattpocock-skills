@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from cost_evaluation import cluster_exposure_economics, github_exposure_sensitivity
-from telemetry_ingestion import Session
-
-ROOT = Path(__file__).parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from optimize_agent_tools.cost_evaluation import (
+    cluster_exposure_economics,
+    github_exposure_sensitivity,
+)
+from optimize_agent_tools.telemetry_ingestion import Session
 
 
 def _stats() -> dict[str, SimpleNamespace]:

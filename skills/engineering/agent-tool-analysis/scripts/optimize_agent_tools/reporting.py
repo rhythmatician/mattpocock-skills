@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from cost_evaluation import COST_SCENARIOS
-from exposure_models import EXPOSURE_MODEL_DESCRIPTIONS, EXPOSURE_MODELS
+from .cost_evaluation import COST_SCENARIOS
+from .exposure_models import EXPOSURE_MODEL_DESCRIPTIONS, EXPOSURE_MODELS
 
 
 def format_tools(values: Iterable[str]) -> str:

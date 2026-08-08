@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from telemetry_ingestion import Session
+from .telemetry_ingestion import Session
 
 
 def build_exposure_matrix(

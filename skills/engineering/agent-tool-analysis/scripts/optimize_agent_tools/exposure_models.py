@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from telemetry_ingestion import Session, normalize_tool_name
+from .telemetry_ingestion import Session, normalize_tool_name
 
 EXPOSURE_MODELS = ("observed_only", "all_runtime_tools", "provider_scoped")
 DECISION_EXPOSURE_MODELS = ("provider_scoped", "all_runtime_tools")
