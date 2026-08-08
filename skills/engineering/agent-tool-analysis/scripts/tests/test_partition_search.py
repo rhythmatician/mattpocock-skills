@@ -39,7 +39,6 @@ def test_search_generates_closed_manifest_candidates_and_metrics() -> None:
         max_agents=2,
         communication_tokens_per_handoff=4,
         delegation_tokens_per_activation=2,
-        baseline_tools={"a", "b", "c", "dep_a", "shared"},
     )
 
     assert {candidate.agent_count for candidate in result.all_candidates} == {1, 2}
@@ -78,6 +77,7 @@ def test_search_generates_closed_manifest_candidates_and_metrics() -> None:
     assert candidate.expected_handoff_count == 1 / 3
     assert candidate.expected_context_cost_before_communication == 100 / 3
     assert candidate.expected_context_cost_after_communication == 142 / 3
+    assert candidate.dependency_closed is True
 
 
 def test_search_retains_only_non_dominated_candidates_in_frontier() -> None:
@@ -93,7 +93,6 @@ def test_search_retains_only_non_dominated_candidates_in_frontier() -> None:
         },
         required_tools={"a", "b"},
         max_agents=2,
-        baseline_tools={"a", "b"},
     )
 
     assert result.pareto_candidates
@@ -130,7 +129,6 @@ def test_global_tool_dependencies_stay_on_parent_surface() -> None:
         global_tools={"shared"},
         dependencies={"shared": {"shared_dep"}},
         max_agents=1,
-        baseline_tools={"shared", "shared_dep", "other"},
     )
 
     candidate = next(
@@ -149,7 +147,6 @@ def test_all_global_surface_still_emits_a_k_one_candidate() -> None:
         required_tools={"shared"},
         global_tools={"shared"},
         max_agents=2,
-        baseline_tools={"shared"},
     )
 
     assert [candidate.agent_count for candidate in result.all_candidates] == [1]

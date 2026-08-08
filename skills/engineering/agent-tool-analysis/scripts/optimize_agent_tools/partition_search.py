@@ -271,6 +271,28 @@ def _partition_edge_weight(
     return total
 
 
+def _is_dependency_closed(
+    agent_tools: tuple[tuple[str, ...], ...],
+    parent_tools: frozenset[str],
+    dependencies: Mapping[str, Iterable[str]],
+) -> bool:
+    surface = parent_tools | frozenset(tool for tools in agent_tools for tool in tools)
+    ownership = {
+        tool: index for index, tools in enumerate(agent_tools) for tool in tools
+    }
+    for tool in surface:
+        for dependency in dependencies.get(tool, ()):
+            if dependency not in surface:
+                return False
+            if (
+                tool in ownership
+                and dependency in ownership
+                and ownership[tool] != ownership[dependency]
+            ):
+                return False
+    return True
+
+
 def _candidate_metrics(
     architecture_id: str,
     agent_tools: tuple[tuple[str, ...], ...],
@@ -279,6 +301,7 @@ def _candidate_metrics(
     stats: Mapping[str, Any],
     retained_tools: frozenset[str],
     graph: _Graph,
+    dependencies: Mapping[str, Iterable[str]],
     delegation_tokens: float,
     communication_tokens: float,
 ) -> PartitionCandidate:
@@ -359,7 +382,7 @@ def _candidate_metrics(
             else None
         ),
         cross_agent_edge_weight=_partition_edge_weight(agent_tools, graph),
-        dependency_closed=True,
+        dependency_closed=_is_dependency_closed(agent_tools, parent_tools, dependencies),
         is_cost_complete=complete,
     )
 
@@ -397,7 +420,6 @@ def search_partitions(
     max_agents: int = 3,
     communication_tokens_per_handoff: float = 0.0,
     delegation_tokens_per_activation: float = 0.0,
-    baseline_tools: Iterable[str] = FROZEN_PRUNED_FLAT_BASELINE_TOOLS,
     max_exhaustive_units: int = 10,
     max_partition_candidates: int = 5000,
 ) -> PartitionSearchResult:
@@ -419,13 +441,6 @@ def search_partitions(
     required_retained = _dependency_closure(roots, dependencies)
     global_surface = _dependency_closure(global_set, dependencies)
     retained = required_retained | global_surface
-    baseline = _strings(baseline_tools, "baseline_tools")
-    missing_from_baseline = retained - baseline
-    if missing_from_baseline:
-        raise ValueError(
-            "Required retained tools are absent from the baseline: "
-            + ", ".join(sorted(missing_from_baseline))
-        )
     if not global_surface <= retained:
         raise ValueError("Global tools must be retained tools.")
     graph = _build_graph(session_list, retained)
@@ -452,6 +467,7 @@ def search_partitions(
                 stats,
                 retained,
                 graph,
+                dependencies,
                 delegation_tokens_per_activation,
                 communication_tokens_per_handoff,
             )
@@ -469,7 +485,7 @@ def search_partitions(
     architectures: list[dict[str, Any]] = [
         {
             "architecture_id": BASELINE_ARCHITECTURE_ID,
-            "parent_tools": sorted(baseline),
+            "parent_tools": sorted(FROZEN_PRUNED_FLAT_BASELINE_TOOLS),
             "agents": {},
         }
     ]
@@ -561,7 +577,6 @@ def main() -> int:
         max_agents=args.max_agents,
         communication_tokens_per_handoff=args.communication_tokens_per_handoff,
         delegation_tokens_per_activation=args.delegation_tokens_per_activation,
-        baseline_tools=report["pruned_flat_baseline"]["tools_retained"],
     )
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     output = result.manifest | {
