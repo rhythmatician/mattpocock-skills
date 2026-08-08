@@ -1,0 +1,145 @@
+{
+  "tasks": [
+    {
+      "task_id": "review-pr-001",
+      "required_specialist": "pareto_02"
+    },
+    {
+      "task_id": "fetch-file-001",
+      "required_specialist": "pareto_03"
+    },
+    {
+      "task_id": "general-edit-001"
+    }
+  ],
+  "observations": {
+    "pruned_flat_baseline": [
+      {
+        "task_id": "review-pr-001",
+        "task_success": true,
+        "capability_covered": true,
+        "quality_score": 1.0,
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 1000,
+        "tool_definition_context_tokens": 5099,
+        "turns": 4,
+        "wall_clock_seconds": 20.0
+      },
+      {
+        "task_id": "fetch-file-001",
+        "task_success": true,
+        "capability_covered": true,
+        "quality_score": 1.0,
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 900,
+        "tool_definition_context_tokens": 5099,
+        "turns": 3,
+        "wall_clock_seconds": 15.0
+      },
+      {
+        "task_id": "general-edit-001",
+        "task_success": true,
+        "capability_covered": true,
+        "quality_score": 1.0,
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 700,
+        "tool_definition_context_tokens": 5099,
+        "turns": 2,
+        "wall_clock_seconds": 10.0
+      }
+    ],
+    "pareto_02": [
+      {
+        "task_id": "review-pr-001",
+        "task_success": true,
+        "capability_covered": true,
+        "quality_score": 1.0,
+        "specialist_activated": "pareto_02",
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 800,
+        "tool_definition_context_tokens": 3840,
+        "turns": 4,
+        "wall_clock_seconds": 18.0
+      },
+      {
+        "task_id": "fetch-file-001",
+        "task_success": true,
+        "capability_covered": true,
+        "quality_score": 1.0,
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 900,
+        "tool_definition_context_tokens": 3840,
+        "turns": 3,
+        "wall_clock_seconds": 15.0
+      },
+      {
+        "task_id": "general-edit-001",
+        "task_success": true,
+        "capability_covered": true,
+        "quality_score": 1.0,
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 700,
+        "tool_definition_context_tokens": 3840,
+        "turns": 2,
+        "wall_clock_seconds": 10.0
+      }
+    ],
+    "pareto_03": [
+      {
+        "task_id": "review-pr-001",
+        "task_success": true,
+        "capability_covered": true,
+        "quality_score": 1.0,
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 1000,
+        "tool_definition_context_tokens": 3840,
+        "turns": 4,
+        "wall_clock_seconds": 20.0
+      },
+      {
+        "task_id": "fetch-file-001",
+        "task_success": true,
+        "capability_covered": true,
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "quality_score": 1.0,
+        "specialist_activated": "pareto_03",
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 800,
+        "tool_definition_context_tokens": 3840,
+        "turns": 3,
+        "wall_clock_seconds": 13.0
+      },
+      {
+        "task_id": "general-edit-001",
+        "task_success": true,
+        "capability_covered": true,
+        "quality_score": 1.0,
+        "tool_call_failures": 0,
+        "routing_failure": false,
+        "missed_specialist_activation": false,
+        "total_input_tokens": 700,
+        "tool_definition_context_tokens": 3840,
+        "turns": 2,
+        "wall_clock_seconds": 10.0
+      }
+    ]
+  }
+}
