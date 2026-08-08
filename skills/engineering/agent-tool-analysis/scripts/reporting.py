@@ -23,9 +23,19 @@ def _append_table(lines: list[str], headers: str, separator: str, rows: Iterable
 
 
 def render_markdown(report: dict[str, Any]) -> str:
+    pruned = report["pruned_flat_baseline"]
     lines = [
         "# Agent Tool Exposure Analysis", "",
         "This report is advisory. No agent configuration was modified.", "",
+        "## Recommendation",
+        "",
+        f"**{pruned['recommendation']['headline']}**",
+        "",
+        f"- Observed dead-tool savings: {pruned['observed_exposure_tokens_removed_per_session']['mid']:.1f} known tool-definition tokens/session",
+        f"- Catalog tokens removed: {pruned['catalog_tokens_removed']['mid']:.1f}",
+        f"- Catalog-only safe candidates: {len(pruned['catalog_only_tools_removed'])} tools; exposure benefit unmeasured",
+        f"- Unresolved retained runtime-tool exposure: {pruned['unresolved_retained_runtime_tool_exposure']['status']}",
+        "",
         "## Corpus", "",
         f"- Sessions analyzed: {report['corpus']['sessions']}",
     ]
@@ -133,26 +143,30 @@ def render_markdown(report: dict[str, Any]) -> str:
     )
 
     lines.extend(["## Independent architecture variants", "", "Variants are ranked by mid-case relative reduction; negative values are reported, not selected away.", ""])
-    pruned = report["pruned_flat_baseline"]
     lines.extend([
         "## Pruned flat baseline",
         "",
         "The flat parent retains every historically used tool plus recursively required dependencies.",
+        f"**Recommendation: {pruned['recommendation']['headline']}**",
+        "",
         f"- Tools removed: {format_tools(pruned['tools_removed'])}",
         f"- Tools retained: {format_tools(pruned['tools_retained'])}",
         f"- Historical called-tool coverage: {pruned['historical_called_tool_coverage']:.1%}",
         f"- Dependency-preservation warnings: {pruned['dependency_preservation_warnings'] or 'none'}",
+        f"- Directly observed, never-used tools removed: {format_tools(pruned['directly_observed_never_used_tools_removed'])}",
+        f"- Catalog-only tools removed: {format_tools(pruned['catalog_only_tools_removed'])}",
+        f"- Unresolved retained runtime-tool exposure: {pruned['unresolved_retained_runtime_tool_exposure']['status']} ({pruned['unresolved_retained_runtime_tool_exposure']['tool_count']} tools)",
         "",
     ])
     _append_table(
         lines,
-        "| Scenario | Removed definition tokens | Baseline before pruning | Baseline after pruning | Absolute reduction | Relative reduction |",
+        "| Scenario | Catalog tokens removed | Observed exposure removed/session | Baseline before pruning | Baseline after pruning | Relative reduction |",
         "|---|---:|---:|---:|---:|---:|",
         (
-            f"| {scenario} | {pruned['removed_definition_tokens'][scenario] if pruned['removed_definition_tokens'][scenario] is not None else 'unavailable'} | "
-            f"{pruned['baseline_tokens_per_session_before_pruning'][scenario] if pruned['baseline_tokens_per_session_before_pruning'][scenario] is not None else 'unavailable'} | "
-            f"{pruned['baseline_tokens_per_session_after_pruning'][scenario] if pruned['baseline_tokens_per_session_after_pruning'][scenario] is not None else 'unavailable'} | "
-            f"{pruned['absolute_reduction'][scenario] if pruned['absolute_reduction'][scenario] is not None else 'unavailable'} | "
+            f"| {scenario} | {_number(pruned['catalog_tokens_removed'][scenario])} | "
+            f"{_number(pruned['observed_exposure_tokens_removed_per_session'][scenario])} | "
+            f"{_number(pruned['baseline_tokens_per_session_before_pruning'][scenario])} | "
+            f"{_number(pruned['baseline_tokens_per_session_after_pruning'][scenario])} | "
             f"{pruned['relative_reduction'][scenario]:.1%} |"
             for scenario in COST_SCENARIOS
         ),

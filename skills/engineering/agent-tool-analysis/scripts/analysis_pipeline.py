@@ -373,14 +373,44 @@ def build_pruned_flat_baseline(
     called_tools = {
         tool for session in sessions for tool in session.tool_set
     }
+    directly_observed_never_used_tools = {
+        name
+        for name in removed_tools
+        if stats[name].sessions_exposed > 0 and stats[name].calls == 0
+    }
+    catalog_only_tools_removed = {
+        name
+        for name in removed_tools
+        if stats[name].sessions_exposed == 0 and stats[name].calls == 0
+    }
+    unresolved_retained_runtime_tools = {
+        name
+        for name in retained_tools
+        if stats.get(name) is not None
+        and stats[name].calls > 0
+        and stats[name].definition_tokens is None
+    }
     return {
         "architecture_id": "pruned_flat_baseline",
         "used_tools": sorted(used_tools),
         "tools_removed": sorted(removed_tools),
         "tools_retained": sorted(retained_tools),
-        "removed_definition_tokens": {
+        "catalog_tokens_removed": {
             scenario: _cost_for_tools(stats, removed_tools, scenario)
             for scenario in COST_SCENARIOS
+        },
+        "directly_observed_never_used_tools_removed": sorted(
+            directly_observed_never_used_tools
+        ),
+        "catalog_only_tools_removed": sorted(catalog_only_tools_removed),
+        "observed_exposure_tokens_removed_per_session": {
+            scenario: scenarios[scenario]["absolute_reduction"]
+            for scenario in COST_SCENARIOS
+        },
+        "unresolved_retained_runtime_tool_exposure": {
+            "status": "unknown" if unresolved_retained_runtime_tools else "none",
+            "tool_count": len(unresolved_retained_runtime_tools),
+            "tools": sorted(unresolved_retained_runtime_tools),
         },
         "baseline_tokens_per_session_before_pruning": {
             scenario: scenarios[scenario][
@@ -407,6 +437,16 @@ def build_pruned_flat_baseline(
             if called_tools
             else 1.0
         ),
+        "recommendation": {
+            "action": "remove_directly_observed_never_used_tools",
+            "headline": (
+                "Remove the "
+                f"{len(directly_observed_never_used_tools)} directly observed, "
+                "never-used exposed tools now."
+            ),
+            "tool_count": len(directly_observed_never_used_tools),
+            "tools": sorted(directly_observed_never_used_tools),
+        },
         "dependency_preservation_warnings": warnings,
         "scenarios": scenarios,
     }

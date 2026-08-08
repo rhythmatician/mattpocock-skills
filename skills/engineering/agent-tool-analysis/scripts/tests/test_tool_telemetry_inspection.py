@@ -25,6 +25,7 @@ from clustering import (
     tool_boundary_metrics,
 )
 from exposure_reporting import build_exposure_matrix, exposure_matrix_summary
+from reporting import render_markdown
 
 ROOT = Path(__file__).parents[1]
 if str(ROOT) not in sys.path:
@@ -885,6 +886,7 @@ def test_pruned_flat_baseline_retains_used_tools_and_dependencies() -> None:
             "execute/runTests": 20,
             "create_file": 30,
             "unused": 40,
+            "catalog_only": 50,
         }.items()
     }
     stats = pipeline.build_stats(sessions, definitions, {})
@@ -900,8 +902,22 @@ def test_pruned_flat_baseline_retains_used_tools_and_dependencies() -> None:
         "create_file",
         "execute/runTests",
     ]
-    assert baseline["tools_removed"] == ["unused"]
-    assert baseline["removed_definition_tokens"]["mid"] == 40
+    assert baseline["tools_removed"] == ["catalog_only", "unused"]
+    assert baseline["catalog_tokens_removed"]["mid"] == 90
+    assert baseline["directly_observed_never_used_tools_removed"] == ["unused"]
+    assert baseline["catalog_only_tools_removed"] == ["catalog_only"]
+    assert baseline["observed_exposure_tokens_removed_per_session"]["mid"] == 20
+    assert baseline["unresolved_retained_runtime_tool_exposure"] == {
+        "status": "none",
+        "tool_count": 0,
+        "tools": [],
+    }
+    assert baseline["recommendation"] == {
+        "action": "remove_directly_observed_never_used_tools",
+        "headline": "Remove the 1 directly observed, never-used exposed tools now.",
+        "tool_count": 1,
+        "tools": ["unused"],
+    }
     assert baseline["historical_called_tool_coverage"] == 1.0
     assert baseline["dependency_preservation_warnings"] == []
     assert baseline["baseline_tokens_per_session_before_pruning"]["mid"] == 20
@@ -932,6 +948,111 @@ def test_pruned_flat_baseline_warns_for_unknown_required_dependency() -> None:
             "missing_dependencies": ["create_file", "execute/runTests"],
         }
     ]
+
+
+def test_pruned_flat_baseline_report_labels_observed_savings_separately() -> None:
+    report = {
+        "pruned_flat_baseline": {
+            "recommendation": {
+                "headline": "Remove the 1 directly observed, never-used exposed tools now."
+            },
+            "directly_observed_never_used_tools_removed": ["unused"],
+            "catalog_only_tools_removed": ["catalog_only"],
+            "observed_exposure_tokens_removed_per_session": {
+                scenario: 50.0 for scenario in ("low", "mid", "high")
+            },
+            "catalog_tokens_removed": {
+                scenario: 90.0 for scenario in ("low", "mid", "high")
+            },
+            "unresolved_retained_runtime_tool_exposure": {
+                "status": "unknown",
+                "tool_count": 1,
+            },
+            "tools_removed": [],
+            "tools_retained": [],
+            "historical_called_tool_coverage": 1.0,
+            "dependency_preservation_warnings": [],
+            "baseline_tokens_per_session_before_pruning": {
+                scenario: 50.0 for scenario in ("low", "mid", "high")
+            },
+            "baseline_tokens_per_session_after_pruning": {
+                scenario: 0.0 for scenario in ("low", "mid", "high")
+            },
+            "absolute_reduction": {
+                scenario: 50.0 for scenario in ("low", "mid", "high")
+            },
+            "relative_reduction": {
+                scenario: 1.0 for scenario in ("low", "mid", "high")
+            },
+        },
+        "corpus": {
+            "sessions": 0,
+            "sessions_total": 0,
+            "sessions_with_calls": 0,
+            "sessions_with_direct_exposure": 0,
+            "sessions_with_calls_and_exposure": 0,
+            "sessions_with_calls_without_exposure": 0,
+            "sessions_with_exposure_without_calls": 0,
+            "tool_calls": 0,
+            "unique_tools": 0,
+            "sources": {},
+        },
+        "definition_resolution": [],
+        "definition_discovery": {
+            "explicit_records": 0,
+            "telemetry_records": 0,
+            "runtime_manifest": {"roots": [], "files_scanned": 0, "definitions_found": 0},
+        },
+        "tools": [],
+        "candidate_agents": [],
+        "clusters": [],
+        "overhead": {
+            "known_cost_coverage": {
+                "tools_with_known_cost": 0,
+                "tools_total": 0,
+                "catalog_coverage_rate": 0.0,
+                "observed_tools_with_known_cost": 0,
+                "observed_tools_total": 0,
+                "observed_tool_coverage_rate": 0.0,
+                "calls_with_known_cost": 0,
+                "total_calls": 0,
+                "usage_weighted_coverage_rate": 0.0,
+                "exposure_weighted_coverage_rate": 0.0,
+            },
+            "flat_baseline_known_tokens": 0.0,
+            "parent_known_tokens_after_partition": 0.0,
+            "expected_known_tokens_per_session_after_partition": 0.0,
+            "expected_known_tokens_saved_per_session": 0.0,
+            "expected_known_token_savings_rate": None,
+            "delegation_overhead_tokens_per_activated_specialist": 0,
+            "interpretation": "test",
+        },
+        "exposure_models": [],
+        "architecture_variants": [],
+        "github_exposure_sensitivity": None,
+        "cluster_one_subset_analysis": None,
+        "candidate_decision_table": None,
+        "provider_availability_diagnostics": {
+            "provider_groups_observed": [],
+            "github": {
+                "advertised_github_like_tools": [],
+                "runtime_github_tools": [],
+                "unresolved_mappings": [],
+            },
+        },
+        "provider_scoped_session_diagnostics": [],
+        "dependency_warnings": [],
+        "strongest_pairs": [],
+        "caveats": [],
+    }
+
+    markdown = render_markdown(report)
+
+    assert markdown.index("## Recommendation") < markdown.index("## Corpus")
+    assert "Observed dead-tool savings: 50.0 known tool-definition tokens/session" in markdown
+    assert "Catalog tokens removed: 90.0" in markdown
+    assert "Catalog-only safe candidates: 1 tools; exposure benefit unmeasured" in markdown
+    assert "Unresolved retained runtime-tool exposure: unknown" in markdown
 
 
 def test_architecture_variants_rebase_against_pruned_flat_baseline() -> None:
