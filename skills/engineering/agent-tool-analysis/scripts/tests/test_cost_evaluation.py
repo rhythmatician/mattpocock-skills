@@ -49,7 +49,9 @@ def test_cluster_economics_reports_break_even_and_tool_contributions() -> None:
     assert observed["average_specialist_tools_exposed_per_session"] == 1.0
     assert observed["baseline_specialist_tokens_per_session"]["mid"] == 50 / 3
     assert observed["loaded_specialist_tokens_per_session"]["mid"] == 20.0
-    assert observed["net_specialist_token_reduction_per_session"]["mid"] == pytest.approx(-10 / 3)
+    assert observed["net_specialist_token_reduction_per_session"][
+        "mid"
+    ] == pytest.approx(-10 / 3)
     assert observed["break_even_baseline_tokens_per_session"]["mid"] == 20.0
     assert observed["break_even_full_cluster_exposure_rate"]["mid"] == 2 / 3
 
@@ -115,8 +117,7 @@ def test_github_exposure_sensitivity_uses_expectations_and_solves_break_even() -
     assert sensitivity["classification"] == "worthwhile_above_break_even"
 
     midpoint = next(
-        point for point in sensitivity["grid"]
-        if point["assumed_exposure_rate"] == 0.5
+        point for point in sensitivity["grid"] if point["assumed_exposure_rate"] == 0.5
     )
     assert midpoint["scenarios"]["mid"] == {
         "baseline_github_tokens_per_session": 15.0,
