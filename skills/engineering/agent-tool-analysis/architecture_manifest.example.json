@@ -1,0 +1,187 @@
+{
+  "baseline_architecture_id": "pruned_flat_baseline",
+  "historical_tool_capability_tools": [
+    "exec",
+    "followup_task",
+    "github.add_comment_to_issue",
+    "github.add_issue_assignees",
+    "github.add_review_to_pr",
+    "github.create_issue",
+    "github.create_pull_request",
+    "github.fetch_file",
+    "github.fetch_issue",
+    "github.fetch_issue_comments",
+    "github.fetch_pr",
+    "github.fetch_pr_comments",
+    "github.fetch_pr_patch",
+    "github.get_pr_info",
+    "github.get_user_login",
+    "github.list_pr_changed_filenames",
+    "github.list_pull_request_review_threads",
+    "github.list_pull_request_reviews",
+    "github.reply_to_review_comment",
+    "github.resolve_review_thread",
+    "github.search_prs",
+    "github.update_issue",
+    "github.update_pull_request",
+    "interrupt_agent",
+    "list_agents",
+    "send_message",
+    "spawn_agent",
+    "wait",
+    "wait_agent"
+  ],
+  "architectures": [
+    {
+      "architecture_id": "pruned_flat_baseline",
+      "parent_tools": [
+        "exec",
+        "followup_task",
+        "github.add_comment_to_issue",
+        "github.add_issue_assignees",
+        "github.add_review_to_pr",
+        "github.create_issue",
+        "github.create_pull_request",
+        "github.fetch_file",
+        "github.fetch_issue",
+        "github.fetch_issue_comments",
+        "github.fetch_pr",
+        "github.fetch_pr_comments",
+        "github.fetch_pr_patch",
+        "github.get_pr_info",
+        "github.get_user_login",
+        "github.list_pr_changed_filenames",
+        "github.list_pull_request_review_threads",
+        "github.list_pull_request_reviews",
+        "github.reply_to_review_comment",
+        "github.resolve_review_thread",
+        "github.search_prs",
+        "github.update_issue",
+        "github.update_pull_request",
+        "interrupt_agent",
+        "list_agents",
+        "send_message",
+        "spawn_agent",
+        "wait",
+        "wait_agent"
+      ],
+      "agents": {}
+    },
+    {
+      "architecture_id": "review_specialist",
+      "parent_tools": [
+        "exec",
+        "followup_task",
+        "github.add_comment_to_issue",
+        "github.add_issue_assignees",
+        "github.create_issue",
+        "github.create_pull_request",
+        "github.fetch_file",
+        "github.fetch_issue",
+        "github.fetch_issue_comments",
+        "github.fetch_pr",
+        "github.fetch_pr_comments",
+        "github.fetch_pr_patch",
+        "github.get_pr_info",
+        "github.get_user_login",
+        "github.list_pr_changed_filenames",
+        "github.list_pull_request_review_threads",
+        "github.list_pull_request_reviews",
+        "github.resolve_review_thread",
+        "github.search_prs",
+        "github.update_issue",
+        "github.update_pull_request",
+        "interrupt_agent",
+        "list_agents",
+        "send_message",
+        "spawn_agent",
+        "wait",
+        "wait_agent"
+      ],
+      "agents": {
+        "review_agent": [
+          "github.add_review_to_pr",
+          "github.reply_to_review_comment"
+        ]
+      }
+    },
+    {
+      "architecture_id": "file_specialist",
+      "parent_tools": [
+        "exec",
+        "followup_task",
+        "github.add_comment_to_issue",
+        "github.add_issue_assignees",
+        "github.add_review_to_pr",
+        "github.create_issue",
+        "github.create_pull_request",
+        "github.fetch_issue",
+        "github.fetch_issue_comments",
+        "github.fetch_pr",
+        "github.fetch_pr_comments",
+        "github.fetch_pr_patch",
+        "github.get_pr_info",
+        "github.get_user_login",
+        "github.list_pull_request_review_threads",
+        "github.list_pull_request_reviews",
+        "github.reply_to_review_comment",
+        "github.resolve_review_thread",
+        "github.search_prs",
+        "github.update_issue",
+        "github.update_pull_request",
+        "interrupt_agent",
+        "list_agents",
+        "send_message",
+        "spawn_agent",
+        "wait",
+        "wait_agent"
+      ],
+      "agents": {
+        "file_agent": [
+          "github.fetch_file",
+          "github.list_pr_changed_filenames"
+        ]
+      }
+    },
+    {
+      "architecture_id": "review_then_file",
+      "parent_tools": [
+        "exec",
+        "followup_task",
+        "github.add_comment_to_issue",
+        "github.add_issue_assignees",
+        "github.create_issue",
+        "github.create_pull_request",
+        "github.fetch_issue",
+        "github.fetch_issue_comments",
+        "github.fetch_pr",
+        "github.fetch_pr_comments",
+        "github.fetch_pr_patch",
+        "github.get_pr_info",
+        "github.get_user_login",
+        "github.list_pull_request_review_threads",
+        "github.list_pull_request_reviews",
+        "github.resolve_review_thread",
+        "github.search_prs",
+        "github.update_issue",
+        "github.update_pull_request",
+        "interrupt_agent",
+        "list_agents",
+        "send_message",
+        "spawn_agent",
+        "wait",
+        "wait_agent"
+      ],
+      "agents": {
+        "review_agent": [
+          "github.add_review_to_pr",
+          "github.reply_to_review_comment"
+        ],
+        "file_agent": [
+          "github.fetch_file",
+          "github.list_pr_changed_filenames"
+        ]
+      }
+    }
+  ]
+}
