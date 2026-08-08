@@ -34,6 +34,25 @@ CODEX_CALL_TYPES = {"custom_tool_call", "function_call", "mcp_tool_call"}
 
 
 @dataclass
+class DynamicToolGroup:
+    """Privacy-safe structural evidence from one dynamic-tools provider group."""
+
+    path: str
+    group_index: int
+    group_keys: tuple[str, ...]
+    provider: str | None
+    name: str | None
+    identifier: str | None
+    tool_count: int
+    raw_tool_names: tuple[str, ...]
+    normalized_tool_names: tuple[str, ...]
+
+    @property
+    def provider_name(self) -> str | None:
+        return self.provider or self.name or self.identifier
+
+
+@dataclass
 class Session:
     session_id: str
     source: str
@@ -42,6 +61,7 @@ class Session:
     exposure_source: str = "not_observed"
     provider_availability: set[str] = field(default_factory=set)
     provider_tools: dict[str, set[str]] = field(default_factory=dict)
+    dynamic_tool_groups: list[DynamicToolGroup] = field(default_factory=list)
 
     @property
     def directly_observed_exposure(self) -> set[str]:
@@ -148,15 +168,10 @@ def extract_codex_calls(event: Any) -> list[str]:
 
 
 def extract_codex_exposures(event: Any) -> set[str]:
-    if not isinstance(event, dict) or not isinstance(event.get("payload"), dict):
-        return set()
-    dynamic_tools = event["payload"].get("dynamic_tools")
-    if not isinstance(dynamic_tools, list):
-        return set()
     return {
-        name for group in dynamic_tools if isinstance(group, dict)
-        for tool in (group.get("tools") or []) if isinstance(tool, dict)
-        for name in [normalize_tool_name(tool.get("name"))] if name
+        name
+        for group in extract_codex_dynamic_tool_groups(event)
+        for name in group.normalized_tool_names
     }
 
 
@@ -166,24 +181,62 @@ def normalize_provider_name(raw_name: Any) -> str | None:
     return raw_name.strip() or None
 
 
-def extract_codex_provider_metadata(event: Any) -> tuple[set[str], dict[str, set[str]]]:
+def _walk_dynamic_tool_lists(
+    value: Any, path: str = "payload"
+) -> Iterable[tuple[str, list[Any]]]:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if key == "dynamic_tools" and isinstance(child, list):
+                yield child_path, child
+            yield from _walk_dynamic_tool_lists(child, child_path)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_dynamic_tool_lists(child, f"{path}[]")
+
+
+def extract_codex_dynamic_tool_groups(event: Any) -> list[DynamicToolGroup]:
+    """Extract group structure and names, never payload values or tool contents."""
     if not isinstance(event, dict) or not isinstance(event.get("payload"), dict):
-        return set(), {}
-    dynamic_tools = event["payload"].get("dynamic_tools")
-    if not isinstance(dynamic_tools, list):
-        return set(), {}
+        return []
+    groups: list[DynamicToolGroup] = []
+    for path, dynamic_tools in _walk_dynamic_tool_lists(event["payload"]):
+        for group_index, group in enumerate(dynamic_tools):
+            if not isinstance(group, dict):
+                continue
+            tools = group.get("tools")
+            tools = tools if isinstance(tools, list) else []
+            named_tools = tuple(
+                (tool["name"].strip(), normalized_name)
+                for tool in tools
+                if isinstance(tool, dict)
+                and isinstance(tool.get("name"), str)
+                and tool["name"].strip()
+                and (normalized_name := normalize_tool_name(tool["name"]))
+            )
+            groups.append(DynamicToolGroup(
+                path=path,
+                group_index=group_index,
+                group_keys=tuple(sorted(group)),
+                provider=normalize_provider_name(group.get("provider")),
+                name=normalize_provider_name(group.get("name")),
+                identifier=normalize_provider_name(group.get("id")),
+                tool_count=len(tools),
+                raw_tool_names=tuple(raw_name for raw_name, _ in named_tools),
+                normalized_tool_names=tuple(name for _, name in named_tools),
+            ))
+    return groups
+
+
+def extract_codex_provider_metadata(event: Any) -> tuple[set[str], dict[str, set[str]]]:
     providers: set[str] = set()
     provider_tools: dict[str, set[str]] = defaultdict(set)
-    for group in dynamic_tools:
-        if not isinstance(group, dict):
-            continue
-        provider = normalize_provider_name(group.get("provider") or group.get("name") or group.get("id"))
+    for group in extract_codex_dynamic_tool_groups(event):
+        provider = group.provider_name
         if not provider:
             continue
         providers.add(provider)
-        for tool in group.get("tools") or []:
-            if isinstance(tool, dict) and (name := normalize_tool_name(tool.get("name"))):
-                provider_tools[provider].add(name)
+        provider_tools[provider].update(group.normalized_tool_names)
     return providers, dict(provider_tools)
 
 
@@ -235,6 +288,7 @@ def get_codex_sessions(sessions_dir: str) -> tuple[list[Session], dict[str, Defi
         exposed: set[str] = set()
         providers: set[str] = set()
         provider_tools: dict[str, set[str]] = defaultdict(set)
+        dynamic_tool_groups: list[DynamicToolGroup] = []
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as stream:
                 for line in stream:
@@ -248,6 +302,7 @@ def get_codex_sessions(sessions_dir: str) -> tuple[list[Session], dict[str, Defi
                         if name := normalize_tool_name(raw):
                             calls.append(name)
                     exposed.update(extract_codex_exposures(event))
+                    dynamic_tool_groups.extend(extract_codex_dynamic_tool_groups(event))
                     event_providers, event_tools = extract_codex_provider_metadata(event)
                     providers.update(event_providers)
                     for provider, tools in event_tools.items():
@@ -256,11 +311,12 @@ def get_codex_sessions(sessions_dir: str) -> tuple[list[Session], dict[str, Defi
                         _prefer_definition(definitions, record)
         except OSError:
             continue
-        if calls or exposed:
+        if calls or exposed or dynamic_tool_groups:
             sessions.append(Session(
                 f"codex:{os.path.relpath(file_path, sessions_dir)}", "codex",
                 calls=calls, exposed_tools=exposed,
                 provider_availability=providers, provider_tools=dict(provider_tools),
+                dynamic_tool_groups=dynamic_tool_groups,
                 exposure_source="codex:payload.dynamic_tools[].tools[].name" if exposed else "not_observed",
             ))
     return sessions, definitions

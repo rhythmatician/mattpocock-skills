@@ -66,11 +66,18 @@ from typing import Any, Iterable
 from exposure_models import (
     EXPOSURE_MODELS,
     baseline_exposure_states,
+    dynamic_tool_group_inventory,
     exposure_consistency,
     exposure_model_summary,
+    provider_availability_diagnostics,
     provider_scoped_session_diagnostics,
 )
-from cost_evaluation import cluster_exposure_economics, scenario_cost
+from cost_evaluation import (
+    DEFAULT_GITHUB_EXPOSURE_RATES,
+    cluster_exposure_economics,
+    github_exposure_sensitivity,
+    scenario_cost,
+)
 from clustering import (
     agglomerative_clusters,
     all_pair_metrics,
@@ -78,8 +85,6 @@ from clustering import (
     build_session_index,
     cluster_boundary_metrics,
     cluster_internal_affinity,
-    pair_key,
-    pair_metrics,
     tool_boundary_metrics,
 )
 from exposure_reporting import build_exposure_matrix, exposure_matrix_summary
@@ -501,7 +506,6 @@ def dependency_warnings(
 
 
 COST_SCENARIOS = ("low", "mid", "high")
-EXPOSURE_MODELS = ("observed_only", "all_runtime_tools", "provider_scoped")
 DECISION_EXPOSURE_MODELS = ("provider_scoped", "all_runtime_tools")
 EXPOSURE_MODEL_DESCRIPTIONS = {
     "observed_only": (
@@ -1048,6 +1052,9 @@ def definition_resolution_report(
 
 
 def render_markdown(report: dict[str, Any]) -> str:
+    def format_tools(values: Iterable[str]) -> str:
+        return ", ".join(f"`{value}`" for value in values) or "none"
+
     lines = []
 
     lines.append("# Agent Tool Exposure Analysis")
@@ -1450,6 +1457,132 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append("")
     lines.append("")
 
+    lines.append("## GitHub exposure sensitivity analysis")
+    lines.append("")
+    github_sensitivity = report["github_exposure_sensitivity"]
+    if github_sensitivity is None:
+        lines.append("Cluster 1 was not an eligible specialist candidate.")
+        lines.append("")
+    else:
+        lines.append(
+            "This is diagnostic sensitivity analysis, not reconstructed telemetry. "
+            + github_sensitivity["assumption"]
+        )
+        lines.append("")
+        lines.append(
+            f"- Applicable Codex sessions: "
+            f"{github_sensitivity['applicable_session_count']}"
+        )
+        lines.append(
+            f"- Historical specialist activation rate: "
+            f"{github_sensitivity['activation_rate']:.1%}"
+        )
+        for scenario in COST_SCENARIOS:
+            rate = github_sensitivity[
+                f"break_even_exposure_rate_{scenario}"
+            ]
+            rate_text = f"{rate:.1%}" if rate is not None else "unavailable"
+            lines.append(
+                f"- Break-even exposure rate ({scenario}): {rate_text}"
+            )
+        lines.append(
+            f"- Classification: `{github_sensitivity['classification']}`"
+        )
+        lines.append("")
+        lines.append(
+            "| Assumed exposure | Scenario | Baseline GitHub tokens/session | "
+            "Loaded specialist tokens/session | Net reduction/session | Relative reduction |"
+        )
+        lines.append("|---:|---|---:|---:|---:|---:|")
+        for point in github_sensitivity["grid"]:
+            for scenario in COST_SCENARIOS:
+                metrics = point["scenarios"][scenario]
+                relative = metrics["relative_token_reduction"]
+                relative_text = (
+                    f"{relative:.1%}" if relative is not None else "unavailable"
+                )
+                lines.append(
+                    f"| {point['assumed_exposure_rate']:.1%} | {scenario} | "
+                    f"{metrics['baseline_github_tokens_per_session']:.1f} | "
+                    f"{metrics['loaded_specialist_tokens_per_session']:.1f} | "
+                    f"{metrics['net_token_reduction_per_session']:.1f} | "
+                    f"{relative_text} |"
+                )
+        lines.append("")
+
+    lines.append("## Provider availability reconstruction")
+    lines.append("")
+    provider_diagnostics = report["provider_availability_diagnostics"]
+    lines.append(
+        "Availability and mappings below come only from explicit dynamic-tools "
+        "groups; runtime calls never establish provider availability."
+    )
+    lines.append("")
+    lines.append("| Provider | Groups observed | Sessions | Advertised tools |")
+    lines.append("|---|---:|---:|---|")
+    for provider in provider_diagnostics["provider_groups_observed"]:
+        lines.append(
+            f"| `{provider['provider']}` | {provider['group_count']} | "
+            f"{provider['session_count']} | {format_tools(provider['tools_advertised'])} |"
+        )
+    lines.append("")
+    lines.append("### GitHub-specific reconstruction")
+    lines.append("")
+    github = provider_diagnostics["github"]
+    lines.extend([
+        f"- Sessions with GitHub-like provider evidence: "
+        f"{github['sessions_with_github_like_provider_evidence']}",
+        f"- Advertised GitHub-like tools: "
+        f"{format_tools(github['advertised_github_like_tools'])}",
+        f"- Runtime `github.*` tools: {format_tools(github['runtime_github_tools'])}",
+        f"- Exact-name matches: {format_tools(github['exact_name_matches'])}",
+        f"- Normalized/alias matches: "
+        f"{format_tools(github['normalized_or_alias_matches'])}",
+        f"- Unresolved mappings: {format_tools(github['unresolved_mappings'])}",
+        "",
+    ])
+    lines.append("### Runtime-to-advertised mappings")
+    lines.append("")
+    lines.append("| Runtime tool | Advertised tool | Provider | Match |")
+    lines.append("|---|---|---|---|")
+    for mapping in provider_diagnostics[
+        "runtime_called_tools_mapped_to_advertised_definitions"
+    ]:
+        lines.append(
+            f"| `{mapping['runtime_tool']}` | `{mapping['advertised_tool']}` | "
+            f"`{mapping['provider']}` | {mapping['match_type']} |"
+        )
+    lines.extend([
+        "",
+        f"- Unmatched runtime tools: "
+        f"{format_tools(provider_diagnostics['unmatched_runtime_tools'])}",
+        f"- Unmatched advertised tools: "
+        f"{format_tools(provider_diagnostics['unmatched_advertised_tools'])}",
+        "",
+    ])
+    lines.append("### Dynamic-tools group inventory")
+    lines.append("")
+    lines.append(
+        "This inventory contains structural metadata and tool names only; it "
+        "omits arguments, prompts, messages, descriptions, schemas, and outputs."
+    )
+    lines.append("")
+    lines.append(
+        "| Session | Path | Group | Keys | Provider | Name | ID | Tool count | Normalized tool names |"
+    )
+    lines.append("|---|---|---:|---|---|---|---|---:|---|")
+    for group in report["dynamic_tool_group_inventory"]:
+        provider = f"`{group['provider']}`" if group["provider"] else "none"
+        name = f"`{group['name']}`" if group["name"] else "none"
+        identifier = f"`{group['id']}`" if group["id"] else "none"
+        lines.append(
+            f"| `{group['session_id']}` | `{group['dynamic_tools_path']}` | "
+            f"{group['group_index']} | {format_tools(group['group_keys'])} | "
+            f"{provider} | {name} | {identifier} | "
+            f"{group['tool_count']} | {format_tools(group['normalized_tool_names'])} |"
+        )
+    lines.append("")
+
     lines.append("## Provider-scoped session diagnostics")
     lines.append("")
     provider_sessions = report["provider_scoped_session_diagnostics"]
@@ -1465,9 +1598,6 @@ def render_markdown(report: dict[str, Any]) -> str:
         "| Session | Provider availability observed? | Providers available | Inferred runtime tools | Directly exposed tools | Called tools |"
     )
     lines.append("|---|---|---|---|---|---|")
-
-    def format_tools(values: Iterable[str]) -> str:
-        return ", ".join(f"`{value}`" for value in values) or "none"
 
     for row in provider_sessions:
         lines.append(
@@ -1585,11 +1715,30 @@ def parse_args() -> argparse.Namespace:
             "Default 0 reports a lower-bound partition estimate."
         ),
     )
+    parser.add_argument(
+        "--github-exposure-rates",
+        default=",".join(f"{rate:g}" for rate in DEFAULT_GITHUB_EXPOSURE_RATES),
+        help=(
+            "Comma-separated probabilities for diagnostic Cluster 1 GitHub "
+            "parent-exposure sensitivity analysis."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+
+    try:
+        github_exposure_rates = tuple(
+            float(value.strip())
+            for value in args.github_exposure_rates.split(",")
+            if value.strip()
+        )
+    except ValueError as error:
+        raise SystemExit(
+            "--github-exposure-rates must be comma-separated numbers"
+        ) from error
 
     if args.min_tool_sessions < 1:
         raise SystemExit("--min-tool-sessions must be >= 1")
@@ -1603,6 +1752,10 @@ def main() -> int:
         raise SystemExit("--min-cluster-sessions must be >= 1")
     if args.delegation_overhead_tokens < 0:
         raise SystemExit("--delegation-overhead-tokens cannot be negative")
+    if not github_exposure_rates:
+        raise SystemExit("--github-exposure-rates must contain at least one rate")
+    if any(rate < 0 or rate > 1 for rate in github_exposure_rates):
+        raise SystemExit("--github-exposure-rates values must be between 0 and 1")
 
     vscode_sessions, vscode_defs = get_vscode_sessions(args.vscode_workspace_storage)
     codex_sessions, codex_defs = get_codex_sessions(args.codex_sessions_dir)
@@ -1675,6 +1828,25 @@ def main() -> int:
         pairs=pairs,
         min_cluster_size=args.min_cluster_size,
         min_cluster_sessions=args.min_cluster_sessions,
+    )
+    cluster_one = next(
+        (
+            candidate
+            for candidate in candidate_agents
+            if candidate["candidate_id"] == "cluster_01"
+        ),
+        None,
+    )
+    github_sensitivity = (
+        github_exposure_sensitivity(
+            sessions=sessions,
+            stats=stats,
+            github_tools=set(cluster_one["tools"]),
+            delegation_overhead_tokens=args.delegation_overhead_tokens,
+            assumed_exposure_rates=github_exposure_rates,
+        )
+        if cluster_one is not None
+        else None
     )
 
     boundary_by_tool: dict[str, dict[str, float]] = {}
@@ -1795,6 +1967,7 @@ def main() -> int:
             "min_cluster_size": args.min_cluster_size,
             "min_cluster_sessions": args.min_cluster_sessions,
             "delegation_overhead_tokens": args.delegation_overhead_tokens,
+            "github_exposure_rates": list(github_exposure_rates),
         },
         "corpus": {
             "sessions": len(sessions),
@@ -1809,6 +1982,11 @@ def main() -> int:
         "exposure_matrix_summary": exposure_matrix_summary(sessions, stats),
         "exposure_consistency": exposure_consistency(sessions),
         "exposure_models": exposure_model_summary(sessions),
+        "github_exposure_sensitivity": github_sensitivity,
+        "dynamic_tool_group_inventory": dynamic_tool_group_inventory(sessions),
+        "provider_availability_diagnostics": provider_availability_diagnostics(
+            sessions
+        ),
         "provider_scoped_session_diagnostics": provider_scoped_session_diagnostics(
             sessions
         ),

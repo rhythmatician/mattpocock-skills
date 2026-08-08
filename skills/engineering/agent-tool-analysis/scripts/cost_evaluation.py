@@ -9,6 +9,17 @@ from exposure_models import EXPOSURE_MODELS, baseline_exposure_states
 from telemetry_ingestion import Session
 
 COST_SCENARIOS = ("low", "mid", "high")
+DEFAULT_GITHUB_EXPOSURE_RATES = (
+    0.0,
+    0.10,
+    0.20,
+    0.25,
+    0.30,
+    0.40,
+    0.50,
+    0.75,
+    1.0,
+)
 
 
 def scenario_cost(stat: Any, scenario: str) -> float | None:
@@ -36,6 +47,118 @@ def _scenario_cost_for_tools(
             return None
         costs.append(cost)
     return sum(costs)
+
+
+def github_exposure_sensitivity(
+    sessions: list[Session],
+    stats: Mapping[str, Any],
+    github_tools: set[str],
+    delegation_overhead_tokens: int,
+    assumed_exposure_rates: Iterable[float] = DEFAULT_GITHUB_EXPOSURE_RATES,
+) -> dict[str, Any]:
+    """Evaluate an assumed GitHub parent-exposure probability analytically.
+
+    This is diagnostic sensitivity analysis, not reconstructed telemetry.
+    Each applicable Codex session has probability ``p`` of carrying the full
+    supplied GitHub tool surface, so expected baseline cost is ``p * D``.
+    Specialist activation remains grounded in historical calls.
+    """
+    rates = tuple(float(rate) for rate in assumed_exposure_rates)
+    if any(rate < 0.0 or rate > 1.0 for rate in rates):
+        raise ValueError("Assumed GitHub exposure rates must be between 0 and 1")
+    if delegation_overhead_tokens < 0:
+        raise ValueError("Delegation overhead cannot be negative")
+
+    github_tools = set(github_tools)
+    applicable_sessions = [session for session in sessions if session.source == "codex"]
+    activation_sessions = sum(
+        bool(session.tool_set & github_tools) for session in applicable_sessions
+    )
+    activation_rate = (
+        activation_sessions / len(applicable_sessions)
+        if applicable_sessions
+        else 0.0
+    )
+    definition_tokens: dict[str, float | None] = {
+        scenario: _scenario_cost_for_tools(stats, github_tools, scenario)
+        for scenario in COST_SCENARIOS
+    }
+    loaded_tokens: dict[str, float | None] = {}
+    break_even_rates: dict[str, float | None] = {}
+    for scenario in COST_SCENARIOS:
+        full_definition = definition_tokens[scenario]
+        loaded = (
+            (full_definition + delegation_overhead_tokens) * activation_rate
+            if full_definition is not None
+            else None
+        )
+        loaded_tokens[scenario] = loaded
+        break_even_rates[scenario] = (
+            loaded / full_definition
+            if loaded is not None and full_definition
+            else None
+        )
+
+    known_break_even = [
+        rate for rate in break_even_rates.values() if rate is not None
+    ]
+    if len(known_break_even) != len(COST_SCENARIOS):
+        classification = "indeterminate"
+    elif all(rate > 1.0 for rate in known_break_even):
+        classification = "definitely_not_worthwhile"
+    elif all(rate <= 1.0 for rate in known_break_even):
+        classification = "worthwhile_above_break_even"
+    else:
+        classification = "indeterminate"
+
+    grid = []
+    for assumed_rate in rates:
+        scenarios: dict[str, dict[str, float | None]] = {}
+        for scenario in COST_SCENARIOS:
+            full_definition = definition_tokens[scenario]
+            baseline = (
+                assumed_rate * full_definition
+                if full_definition is not None
+                else None
+            )
+            loaded = loaded_tokens[scenario]
+            net = (
+                baseline - loaded
+                if baseline is not None and loaded is not None
+                else None
+            )
+            scenarios[scenario] = {
+                "baseline_github_tokens_per_session": baseline,
+                "loaded_specialist_tokens_per_session": loaded,
+                "net_token_reduction_per_session": net,
+                "relative_token_reduction": (
+                    net / baseline
+                    if net is not None and baseline
+                    else None
+                ),
+            }
+        grid.append({
+            "assumed_exposure_rate": assumed_rate,
+            "scenarios": scenarios,
+        })
+
+    return {
+        "analysis_type": "diagnostic_sensitivity_not_telemetry",
+        "assumption": (
+            "Each applicable Codex session has probability p that the full "
+            "Cluster 1 GitHub tool surface is exposed on the parent."
+        ),
+        "github_tools": sorted(github_tools),
+        "applicable_session_count": len(applicable_sessions),
+        "activation_sessions": activation_sessions,
+        "activation_rate": activation_rate,
+        **{
+            f"break_even_exposure_rate_{scenario}": break_even_rates[scenario]
+            for scenario in COST_SCENARIOS
+        },
+        "classification": classification,
+        "grid": grid,
+    }
 
 
 def cluster_exposure_economics(

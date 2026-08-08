@@ -6,7 +6,25 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
+from tool_definition_registry import DefinitionRecord
+from telemetry_ingestion import (
+    DynamicToolGroup,
+    Session,
+    extract_codex_calls,
+    extract_codex_dynamic_tool_groups,
+    extract_codex_exposures,
+    extract_codex_provider_metadata,
+    find_raw_tool_call,
+    normalize_tool_name,
+)
+from exposure_models import baseline_exposure_states, provider_availability_diagnostics
+from cost_evaluation import cluster_exposure_economics
+from clustering import (
+    build_session_index,
+    cluster_boundary_metrics,
+    tool_boundary_metrics,
+)
+from exposure_reporting import build_exposure_matrix, exposure_matrix_summary
 
 ROOT = Path(__file__).parents[1]
 if str(ROOT) not in sys.path:
@@ -28,25 +46,6 @@ def _load_module(name: str, filename: str) -> Any:
 optimizer = _load_module("optimize_agent_tools", "optimize_agent_tools.py")
 sys.modules["optimize_agent_tools"] = optimizer
 inspector = _load_module("inspect_codex_telemetry", "inspect_codex_telemetry.py")
-
-from tool_definition_registry import DefinitionRecord
-from telemetry_ingestion import (
-    Session,
-    extract_codex_calls,
-    extract_codex_exposures,
-    extract_codex_provider_metadata,
-    find_raw_tool_call,
-    normalize_tool_name,
-)
-from exposure_models import baseline_exposure_states
-from cost_evaluation import cluster_exposure_economics
-from clustering import (
-    build_session_index,
-    cluster_boundary_metrics,
-    pair_metrics,
-    tool_boundary_metrics,
-)
-from exposure_reporting import build_exposure_matrix, exposure_matrix_summary
 
 
 def make_definition(
@@ -270,6 +269,125 @@ def test_codex_provider_metadata_requires_named_dynamic_tool_group() -> None:
     assert provider_tools == {
         "github": {"github.fetch_issue", "github.fetch_pr"}
     }
+
+
+def test_dynamic_tool_group_inventory_is_structural_and_privacy_safe() -> None:
+    event = {
+        "payload": {
+            "dynamic_tools": [
+                {
+                    "type": "app",
+                    "name": "codex_app",
+                    "description": "private provider description",
+                    "tools": [
+                        {
+                            "name": "create_thread",
+                            "description": "private tool description",
+                            "inputSchema": {"secret": "schema value"},
+                        }
+                    ],
+                }
+            ],
+            "messages": ["private prompt"],
+        }
+    }
+
+    groups = extract_codex_dynamic_tool_groups(event)
+
+    assert groups == [
+        DynamicToolGroup(
+            path="payload.dynamic_tools",
+            group_index=0,
+            group_keys=("description", "name", "tools", "type"),
+            provider=None,
+            name="codex_app",
+            identifier=None,
+            tool_count=1,
+            raw_tool_names=("create_thread",),
+            normalized_tool_names=("create_thread",),
+        )
+    ]
+    assert "private" not in str(groups)
+    assert "schema value" not in str(groups)
+
+
+def test_dynamic_tool_group_inventory_finds_nested_structures() -> None:
+    event = {
+        "payload": {
+            "wrapper": {
+                "dynamic_tools": [
+                    {"id": "nested_app", "tools": [{"name": "nested.tool"}]}
+                ]
+            }
+        }
+    }
+
+    groups = extract_codex_dynamic_tool_groups(event)
+
+    assert len(groups) == 1
+    assert groups[0].path == "payload.wrapper.dynamic_tools"
+    assert groups[0].identifier == "nested_app"
+    assert groups[0].normalized_tool_names == ("nested.tool",)
+
+
+def test_provider_diagnostics_never_treat_github_calls_as_availability() -> None:
+    sessions = [
+        Session(
+            "advertised",
+            "codex",
+            ["create_thread"],
+            {"create_thread"},
+            provider_availability={"codex_app"},
+            provider_tools={"codex_app": {"create_thread"}},
+            dynamic_tool_groups=[
+                DynamicToolGroup(
+                    path="payload.dynamic_tools",
+                    group_index=0,
+                    group_keys=("name", "tools", "type"),
+                    provider=None,
+                    name="codex_app",
+                    identifier=None,
+                    tool_count=1,
+                    raw_tool_names=("create_thread",),
+                    normalized_tool_names=("create_thread",),
+                )
+            ],
+        ),
+        Session("called-only", "codex", ["github.fetch_issue"]),
+    ]
+
+    diagnostics = provider_availability_diagnostics(sessions)
+
+    assert diagnostics["provider_groups_observed"] == [
+        {
+            "provider": "codex_app",
+            "group_count": 1,
+            "session_count": 1,
+            "sessions": ["advertised"],
+            "tools_advertised": ["create_thread"],
+        }
+    ]
+    assert diagnostics["runtime_called_tools_mapped_to_advertised_definitions"] == [
+        {
+            "runtime_tool": "create_thread",
+            "advertised_tool": "create_thread",
+            "provider": "codex_app",
+            "match_type": "exact_name",
+        }
+    ]
+    assert diagnostics["unmatched_runtime_tools"] == ["github.fetch_issue"]
+    assert diagnostics["unmatched_advertised_tools"] == []
+    assert diagnostics["github"] == {
+        "sessions_with_github_like_provider_evidence": 0,
+        "advertised_github_like_tools": [],
+        "runtime_github_tools": ["github.fetch_issue"],
+        "exact_name_matches": [],
+        "normalized_or_alias_matches": [],
+        "unresolved_mappings": ["github.fetch_issue"],
+    }
+
+    states = baseline_exposure_states(sessions, "provider_scoped")
+    assert states["called-only"].inferred_baseline_exposure == frozenset()
 
 
 def test_exposure_matrix_does_not_turn_usage_into_exposure() -> None:
