@@ -25,6 +25,14 @@ from optimize_agent_tools.telemetry_ingestion import (
     get_vscode_sessions,
 )
 
+PARETO_DIMENSIONS = (
+    "expected_context_cost_after_communication",
+    "max_agent_definition_cost",
+    "cross_agent_session_frequency",
+    "expected_handoff_count",
+    "agent_count",
+)
+
 
 @dataclass(frozen=True)
 class PartitionCandidate:
@@ -127,7 +135,7 @@ def _build_graph(sessions: list[Session], tools: frozenset[str]) -> _Graph:
 
 
 def _dependency_closure(
-    roots: Iterable[str], dependencies: Mapping[str, Iterable[str]], global_tools: frozenset[str]
+    roots: Iterable[str], dependencies: Mapping[str, Iterable[str]]
 ) -> frozenset[str]:
     retained = set(roots)
     pending = list(retained)
@@ -357,19 +365,12 @@ def _candidate_metrics(
 
 
 def _pareto(candidates: list[PartitionCandidate]) -> tuple[PartitionCandidate, ...]:
-    dimensions = (
-        "expected_context_cost_after_communication",
-        "max_agent_definition_cost",
-        "cross_agent_session_frequency",
-        "expected_handoff_count",
-        "agent_count",
-    )
     eligible = [candidate for candidate in candidates if candidate.is_cost_complete]
     frontier: list[PartitionCandidate] = []
     for candidate in eligible:
         dominated = any(
-            all(getattr(other, key) <= getattr(candidate, key) for key in dimensions)
-            and any(getattr(other, key) < getattr(candidate, key) for key in dimensions)
+            all(getattr(other, key) <= getattr(candidate, key) for key in PARETO_DIMENSIONS)
+            and any(getattr(other, key) < getattr(candidate, key) for key in PARETO_DIMENSIONS)
             for other in eligible
             if other.architecture_id != candidate.architecture_id
         )
@@ -415,8 +416,8 @@ def search_partitions(
     global_set = _strings(global_tools, "global_tools")
     observed_tools = frozenset(tool for session in session_list for tool in session.tool_set)
     roots = _strings(required_tools, "required_tools") if required_tools is not None else observed_tools
-    required_retained = _dependency_closure(roots, dependencies, global_set)
-    global_surface = _dependency_closure(global_set, dependencies, global_set)
+    required_retained = _dependency_closure(roots, dependencies)
+    global_surface = _dependency_closure(global_set, dependencies)
     retained = required_retained | global_surface
     baseline = _strings(baseline_tools, "baseline_tools")
     missing_from_baseline = retained - baseline
@@ -431,7 +432,7 @@ def search_partitions(
     units = _dependency_units(retained, dependencies, global_surface)
     all_candidates: list[PartitionCandidate] = []
     complete = True
-    max_k = min(max_agents, len(units)) if units else 0
+    max_k = min(max_agents, len(units)) if units else (1 if retained else 0)
     for agent_count in range(1, max_k + 1):
         estimated = _stirling_second_kind(len(units), agent_count)
         if len(units) <= max_exhaustive_units and estimated <= max_partition_candidates:
@@ -488,13 +489,6 @@ def search_partitions(
         "historical_tool_capability_tools": sorted(required_retained),
         "architectures": architectures,
     }
-    dimensions = [
-        "expected_context_cost_after_communication",
-        "max_agent_definition_cost",
-        "cross_agent_session_frequency",
-        "expected_handoff_count",
-        "agent_count",
-    ]
     report = {
         "search": {
             "max_agents": max_agents,
@@ -504,7 +498,7 @@ def search_partitions(
             "dependency_edges": {
                 tool: sorted(values) for tool, values in sorted(dependencies.items())
             },
-            "pareto_dimensions": dimensions,
+            "pareto_dimensions": list(PARETO_DIMENSIONS),
         },
         "candidates": [_candidate_dict(candidate) for candidate in marked_all],
         "pareto_candidate_ids": [candidate.architecture_id for candidate in marked_frontier],
@@ -570,7 +564,12 @@ def main() -> int:
         baseline_tools=report["pruned_flat_baseline"]["tools_retained"],
     )
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.output).write_text(json.dumps(result.report, indent=2) + "\n", encoding="utf-8")
+    output = result.manifest | {
+        "partition_search": result.report["search"],
+        "candidates": result.report["candidates"],
+        "pareto_candidate_ids": result.report["pareto_candidate_ids"],
+    }
+    Path(args.output).write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {len(result.pareto_candidates)} Pareto candidates to {args.output}")
     return 0
 

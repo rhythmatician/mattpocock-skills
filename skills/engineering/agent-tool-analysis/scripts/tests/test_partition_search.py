@@ -140,3 +140,20 @@ def test_global_tool_dependencies_stay_on_parent_surface() -> None:
     )
     assert candidate.parent_tools == ("shared", "shared_dep")
     assert candidate.agent_tools == (("other",),)
+
+
+def test_all_global_surface_still_emits_a_k_one_candidate() -> None:
+    result = search_partitions(
+        sessions=[Session("one", "codex", ["shared"], {"shared"})],
+        stats={"shared": SimpleNamespace(definition_tokens=10)},
+        required_tools={"shared"},
+        global_tools={"shared"},
+        max_agents=2,
+        baseline_tools={"shared"},
+    )
+
+    assert [candidate.agent_count for candidate in result.all_candidates] == [1]
+    assert result.all_candidates[0].agent_tools == ((),)
+    assert result.manifest["architectures"][0]["architecture_id"] == (
+        "pruned_flat_baseline"
+    )
