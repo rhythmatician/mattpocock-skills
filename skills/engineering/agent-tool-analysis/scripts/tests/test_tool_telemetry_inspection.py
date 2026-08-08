@@ -873,6 +873,106 @@ def test_cluster_one_subset_retains_dependency_warnings() -> None:
     }
 
 
+def test_pruned_flat_baseline_retains_used_tools_and_dependencies() -> None:
+    sessions = [
+        Session("used", "codex", ["apply_patch"]),
+        Session("unused", "codex", [], {"unused"}),
+    ]
+    definitions = {
+        name: make_definition(name, tokens * 4, tokens)
+        for name, tokens in {
+            "apply_patch": 10,
+            "execute/runTests": 20,
+            "create_file": 30,
+            "unused": 40,
+        }.items()
+    }
+    stats = pipeline.build_stats(sessions, definitions, {})
+
+    baseline = pipeline.build_pruned_flat_baseline(
+        sessions,
+        stats,
+        global_tools=set(),
+    )
+
+    assert baseline["tools_retained"] == [
+        "apply_patch",
+        "create_file",
+        "execute/runTests",
+    ]
+    assert baseline["tools_removed"] == ["unused"]
+    assert baseline["removed_definition_tokens"]["mid"] == 40
+    assert baseline["historical_called_tool_coverage"] == 1.0
+    assert baseline["dependency_preservation_warnings"] == []
+    assert baseline["baseline_tokens_per_session_before_pruning"]["mid"] == 20
+    assert baseline["baseline_tokens_per_session_after_pruning"]["mid"] == 0
+    assert baseline["absolute_reduction"]["mid"] == 20
+    assert baseline["relative_reduction"]["mid"] == 1.0
+
+
+def test_pruned_flat_baseline_warns_for_unknown_required_dependency() -> None:
+    sessions = [Session("used", "codex", ["apply_patch"])]
+    definitions = {"apply_patch": make_definition("apply_patch", 40, 10)}
+    stats = pipeline.build_stats(sessions, definitions, {})
+
+    baseline = pipeline.build_pruned_flat_baseline(
+        sessions,
+        stats,
+        global_tools=set(),
+    )
+
+    assert baseline["tools_retained"] == [
+        "apply_patch",
+        "create_file",
+        "execute/runTests",
+    ]
+    assert baseline["dependency_preservation_warnings"] == [
+        {
+            "tool": "apply_patch",
+            "missing_dependencies": ["create_file", "execute/runTests"],
+        }
+    ]
+
+
+def test_architecture_variants_rebase_against_pruned_flat_baseline() -> None:
+    sessions = [
+        Session("used", "codex", ["specialist"], {"specialist", "helper"}),
+        Session("unused", "codex", [], {"unused"}),
+    ]
+    definitions = {
+        "specialist": make_definition("specialist", 40, 10),
+        "helper": make_definition("helper", 40, 10),
+        "unused": make_definition("unused", 80, 20),
+    }
+    stats = pipeline.build_stats(sessions, definitions, {})
+
+    result = pipeline.evaluate_architecture_variants(
+        sessions=sessions,
+        stats=stats,
+        global_tools=set(),
+        candidate_agents=[
+            {"candidate_id": "cluster_01", "tools": ["specialist", "helper"]}
+        ],
+        boundary_by_tool={},
+        delegation_overhead_tokens=0,
+        baseline_tools={"specialist", "helper"},
+    )
+
+    baseline = next(
+        item for item in result if item["variant_id"] == "pruned_flat_baseline"
+    )
+    assert baseline["variant_id"] == "pruned_flat_baseline"
+    assert baseline["baseline_architecture_id"] == "pruned_flat_baseline"
+    assert baseline["scenarios"]["mid"]["baseline_tokens_per_session"] == 10
+    assert baseline["scenarios"]["mid"]["proposed_tokens_per_session"] == 10
+    assert baseline["scenarios"]["mid"]["absolute_token_reduction_per_session"] == 0
+
+    specialist = next(item for item in result if item["variant_id"] == "cluster_01")
+    assert specialist["baseline_architecture_id"] == "pruned_flat_baseline"
+    assert specialist["scenarios"]["mid"]["baseline_tokens_per_session"] == 10
+    assert specialist["scenarios"]["mid"]["proposed_tokens_per_session"] == 10
+
+
 def test_candidate_decision_table_evaluates_fixed_grid_and_robustness() -> None:
     pareto = {
         "tools": ["a", "b"],

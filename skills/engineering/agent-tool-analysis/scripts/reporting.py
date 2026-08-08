@@ -133,9 +133,38 @@ def render_markdown(report: dict[str, Any]) -> str:
     )
 
     lines.extend(["## Independent architecture variants", "", "Variants are ranked by mid-case relative reduction; negative values are reported, not selected away.", ""])
+    pruned = report["pruned_flat_baseline"]
+    lines.extend([
+        "## Pruned flat baseline",
+        "",
+        "The flat parent retains every historically used tool plus recursively required dependencies.",
+        f"- Tools removed: {format_tools(pruned['tools_removed'])}",
+        f"- Tools retained: {format_tools(pruned['tools_retained'])}",
+        f"- Historical called-tool coverage: {pruned['historical_called_tool_coverage']:.1%}",
+        f"- Dependency-preservation warnings: {pruned['dependency_preservation_warnings'] or 'none'}",
+        "",
+    ])
+    _append_table(
+        lines,
+        "| Scenario | Removed definition tokens | Baseline before pruning | Baseline after pruning | Absolute reduction | Relative reduction |",
+        "|---|---:|---:|---:|---:|---:|",
+        (
+            f"| {scenario} | {pruned['removed_definition_tokens'][scenario] if pruned['removed_definition_tokens'][scenario] is not None else 'unavailable'} | "
+            f"{pruned['baseline_tokens_per_session_before_pruning'][scenario] if pruned['baseline_tokens_per_session_before_pruning'][scenario] is not None else 'unavailable'} | "
+            f"{pruned['baseline_tokens_per_session_after_pruning'][scenario] if pruned['baseline_tokens_per_session_after_pruning'][scenario] is not None else 'unavailable'} | "
+            f"{pruned['absolute_reduction'][scenario] if pruned['absolute_reduction'][scenario] is not None else 'unavailable'} | "
+            f"{pruned['relative_reduction'][scenario]:.1%} |"
+            for scenario in COST_SCENARIOS
+        ),
+    )
+    lines.extend([
+        "Specialist architecture variants below are rebased against `pruned_flat_baseline`.",
+        "",
+    ])
     for variant in report["architecture_variants"]:
         lines.extend([
             f"### {variant['rank']}. `{variant['variant_id']}`", "",
+            f"- Baseline architecture: `{variant['baseline_architecture_id']}`",
             f"- Specialist tools: {format_tools(variant['specialist_tools'])}",
             f"- Historical called-tool coverage: {variant['historical_called_tool_coverage_rate']:.1%}",
             f"- Mid-case sensitivity: {_number(variant['sensitivity']['min_mid_reduction'], '%')} to {_number(variant['sensitivity']['max_mid_reduction'], '%')}",

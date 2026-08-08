@@ -280,6 +280,149 @@ def dependency_warnings(candidate_agents: list[dict[str, Any]], global_tools: se
     return warnings
 
 
+def dependency_preservation_warnings(
+    used_tools: set[str],
+    retained_tools: set[str],
+    all_tools: set[str],
+) -> list[dict[str, Any]]:
+    """Report required dependencies that cannot be retained in a flat baseline."""
+    warnings: dict[str, set[str]] = defaultdict(set)
+    for root in used_tools:
+        for dependency in KNOWN_DEPENDENCIES.get(root, set()):
+            if dependency not in all_tools or dependency not in retained_tools:
+                warnings[root].add(dependency)
+
+    return [
+        {
+            "tool": tool,
+            "missing_dependencies": sorted(dependencies),
+        }
+        for tool, dependencies in sorted(warnings.items())
+    ]
+
+
+def build_pruned_flat_baseline(
+    sessions: list[Session],
+    stats: dict[str, ToolStat],
+    *,
+    global_tools: set[str],
+) -> dict[str, Any]:
+    """Build a flat parent surface from used tools plus known dependencies."""
+    used_tools = {name for name, stat in stats.items() if stat.calls > 0}
+    retained_tools = set(used_tools)
+    pending = list(sorted(used_tools))
+    while pending:
+        tool = pending.pop()
+        for dependency in sorted(KNOWN_DEPENDENCIES.get(tool, set())):
+            if dependency not in retained_tools:
+                retained_tools.add(dependency)
+                pending.append(dependency)
+
+    all_tools = set(stats)
+    removed_tools = all_tools - retained_tools
+    warnings = dependency_preservation_warnings(
+        used_tools=used_tools,
+        retained_tools=retained_tools,
+        all_tools=all_tools,
+    )
+    before = expected_token_cost_scenarios(
+        sessions=sessions,
+        stats=stats,
+        global_tools=global_tools,
+        candidate_agents=[],
+        delegation_overhead_tokens=0,
+        exposure_model="observed_only",
+    )
+    after = expected_token_cost_scenarios(
+        sessions=sessions,
+        stats=stats,
+        global_tools=global_tools,
+        candidate_agents=[],
+        delegation_overhead_tokens=0,
+        exposure_model="observed_only",
+        baseline_tools=retained_tools,
+    )
+    scenarios = {
+        scenario: {
+            "baseline_tokens_per_session_before_pruning": before[scenario][
+                "baseline_tokens_per_session"
+            ],
+            "baseline_tokens_per_session_after_pruning": after[scenario][
+                "baseline_tokens_per_session"
+            ],
+            "absolute_reduction": (
+                before[scenario]["baseline_tokens_per_session"]
+                - after[scenario]["baseline_tokens_per_session"]
+                if before[scenario]["baseline_tokens_per_session"] is not None
+                and after[scenario]["baseline_tokens_per_session"] is not None
+                else None
+            ),
+            "relative_reduction": (
+                (
+                    before[scenario]["baseline_tokens_per_session"]
+                    - after[scenario]["baseline_tokens_per_session"]
+                )
+                / before[scenario]["baseline_tokens_per_session"]
+                if before[scenario]["baseline_tokens_per_session"]
+                and after[scenario]["baseline_tokens_per_session"] is not None
+                else None
+            ),
+        }
+        for scenario in COST_SCENARIOS
+    }
+    called_tools = {
+        tool for session in sessions for tool in session.tool_set
+    }
+    return {
+        "architecture_id": "pruned_flat_baseline",
+        "used_tools": sorted(used_tools),
+        "tools_removed": sorted(removed_tools),
+        "tools_retained": sorted(retained_tools),
+        "removed_definition_tokens": {
+            scenario: _cost_for_tools(stats, removed_tools, scenario)
+            for scenario in COST_SCENARIOS
+        },
+        "baseline_tokens_per_session_before_pruning": {
+            scenario: scenarios[scenario][
+                "baseline_tokens_per_session_before_pruning"
+            ]
+            for scenario in COST_SCENARIOS
+        },
+        "baseline_tokens_per_session_after_pruning": {
+            scenario: scenarios[scenario][
+                "baseline_tokens_per_session_after_pruning"
+            ]
+            for scenario in COST_SCENARIOS
+        },
+        "absolute_reduction": {
+            scenario: scenarios[scenario]["absolute_reduction"]
+            for scenario in COST_SCENARIOS
+        },
+        "relative_reduction": {
+            scenario: scenarios[scenario]["relative_reduction"]
+            for scenario in COST_SCENARIOS
+        },
+        "historical_called_tool_coverage": (
+            len(called_tools & retained_tools) / len(called_tools)
+            if called_tools
+            else 1.0
+        ),
+        "dependency_preservation_warnings": warnings,
+        "scenarios": scenarios,
+    }
+
+
+def _cost_for_tools(
+    stats: dict[str, ToolStat],
+    tools: set[str],
+    scenario: str,
+) -> float | None:
+    costs = [scenario_cost(stats[tool], scenario) for tool in tools if tool in stats]
+    return sum(cost for cost in costs if cost is not None) if all(
+        cost is not None for cost in costs
+    ) else None
+
+
 def _grid_net_reduction(sensitivity: dict[str, Any], exposure_rate: float, scenario: str = "mid") -> float | None:
     point = next((item for item in sensitivity["grid"] if math.isclose(item["assumed_exposure_rate"], exposure_rate)), None)
     return point["scenarios"][scenario]["net_token_reduction_per_session"] if point else None
@@ -479,7 +622,7 @@ def reduction_metrics(baseline_tokens_per_session: float, proposed_tokens_per_se
 
 
 def build_architecture_variants(candidate_agents: list[dict[str, Any]], boundary_by_tool: dict[str, dict[str, float]], global_tools: set[str]) -> list[dict[str, Any]]:
-    variants = [{"variant_id": "baseline", "variant_type": "baseline", "cluster_id": None, "specialist_tools": [], "pruned_tools": []}]
+    variants = [{"variant_id": "pruned_flat_baseline", "variant_type": "pruned_flat_baseline", "cluster_id": None, "specialist_tools": [], "pruned_tools": []}]
     for agent in candidate_agents:
         candidate_id = str(agent["candidate_id"])
         tools = sorted(set(agent["tools"]) - global_tools)
@@ -500,13 +643,14 @@ def _scenario_sessions(sessions: list[Session], exposure_sessions: list[Session]
 
 
 def expected_token_cost_scenarios(
-    sessions: list[Session], stats: dict[str, ToolStat], global_tools: set[str], candidate_agents: list[dict[str, Any]], delegation_overhead_tokens: int, *, exposure_sessions: list[Session] | None = None, exposure_model: str = "observed_only",
+    sessions: list[Session], stats: dict[str, ToolStat], global_tools: set[str], candidate_agents: list[dict[str, Any]], delegation_overhead_tokens: int, *, exposure_sessions: list[Session] | None = None, exposure_model: str = "observed_only", baseline_tools: set[str] | None = None,
 ) -> dict[str, dict[str, float | None]]:
     scenario_sessions = _scenario_sessions(sessions, exposure_sessions)
     states = baseline_exposure_states(scenario_sessions, exposure_model)
     membership = {tool: agent["candidate_id"] for agent in candidate_agents for tool in agent["tools"]}
     agents = {agent["candidate_id"]: agent for agent in candidate_agents}
-    parent_tools = (set(stats) - set(membership)) | global_tools
+    baseline_surface = set(stats) if baseline_tools is None else set(baseline_tools)
+    parent_tools = (baseline_surface - set(membership)) | (global_tools & baseline_surface)
     def total_cost(names: Iterable[str], scenario: str) -> float | None:
         costs = []
         for name in names:
@@ -523,7 +667,7 @@ def expected_token_cost_scenarios(
         baseline_costs, proposed_costs = [], []
         for session in scenario_sessions:
             exposure = states[session.session_id]
-            baseline = total_cost(exposure.exposed_tools, scenario)
+            baseline = total_cost(exposure.exposed_tools & baseline_surface, scenario)
             if baseline is None:
                 continue
             proposed = total_cost(exposure.exposed_tools & parent_tools, scenario)
@@ -542,7 +686,7 @@ def expected_token_cost_scenarios(
 
 
 def evaluate_architecture_variants(
-    sessions: list[Session], stats: dict[str, ToolStat], global_tools: set[str], candidate_agents: list[dict[str, Any]], boundary_by_tool: dict[str, dict[str, float]], delegation_overhead_tokens: int, *, exposure_sessions: list[Session] | None = None,
+    sessions: list[Session], stats: dict[str, ToolStat], global_tools: set[str], candidate_agents: list[dict[str, Any]], boundary_by_tool: dict[str, dict[str, float]], delegation_overhead_tokens: int, *, exposure_sessions: list[Session] | None = None, baseline_tools: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     scenario_sessions = _scenario_sessions(sessions, exposure_sessions)
     called_tools = {tool for session in scenario_sessions for tool in session.tool_set}
@@ -550,12 +694,12 @@ def evaluate_architecture_variants(
     for variant in build_architecture_variants(candidate_agents, boundary_by_tool, global_tools):
         specialist = set(variant["specialist_tools"])
         candidate = [{"candidate_id": variant["variant_id"], "tools": sorted(specialist)}] if specialist else []
-        model_scenarios = {model: expected_token_cost_scenarios(sessions, stats, global_tools, candidate, delegation_overhead_tokens, exposure_sessions=exposure_sessions, exposure_model=model) for model in EXPOSURE_MODELS}
+        model_scenarios = {model: expected_token_cost_scenarios(sessions, stats, global_tools, candidate, delegation_overhead_tokens, exposure_sessions=exposure_sessions, exposure_model=model, baseline_tools=baseline_tools) for model in EXPOSURE_MODELS}
         activation_count = sum(bool(session.tool_set & specialist) for session in scenario_sessions)
         activation_rate = activation_count / len(scenario_sessions) if scenario_sessions else 0.0
         coverage = len(called_tools & ((set(stats) - specialist) | specialist | global_tools)) / len(called_tools) if called_tools else 1.0
         scenarios = {scenario: {**model_scenarios["observed_only"][scenario], "specialist_activation_rate": activation_rate, "average_specialist_activations_per_session": activation_rate, "sessions_requiring_specialist": activation_count} for scenario in COST_SCENARIOS}
-        evaluated.append({**variant, "historical_called_tool_coverage_rate": coverage, "scenarios": scenarios, "sensitivity": sensitivity_summary(model_scenarios), "exposure_economics": cluster_exposure_economics(scenario_sessions, stats, specialist, delegation_overhead_tokens) if specialist else None, "scenarios_by_exposure_model": {model: {scenario: {**metrics, "specialist_activation_rate": activation_rate, "average_specialist_activations_per_session": activation_rate, "sessions_requiring_specialist": activation_count} for scenario, metrics in metrics_by_scenario.items()} for model, metrics_by_scenario in model_scenarios.items()}})
+        evaluated.append({**variant, "baseline_architecture_id": "pruned_flat_baseline", "historical_called_tool_coverage_rate": coverage, "scenarios": scenarios, "sensitivity": sensitivity_summary(model_scenarios), "exposure_economics": cluster_exposure_economics(scenario_sessions, stats, specialist, delegation_overhead_tokens) if specialist else None, "scenarios_by_exposure_model": {model: {scenario: {**metrics, "specialist_activation_rate": activation_rate, "average_specialist_activations_per_session": activation_rate, "sessions_requiring_specialist": activation_count} for scenario, metrics in metrics_by_scenario.items()} for model, metrics_by_scenario in model_scenarios.items()}})
     def ranking_key(item: dict[str, Any]) -> tuple[float, str]:
         reduction = item["scenarios"]["mid"]["relative_token_reduction"]
         return (
@@ -608,7 +752,22 @@ def analyze(
         for tool in cluster:
             boundary_by_tool[tool] = tool_boundary_metrics(tool, cluster, pairs, active_tools)
     subset_analysis = evaluate_cluster_one_subsets(sessions, stats, cluster_one["tools"], pairs, active_tools, global_tools, delegation_overhead_tokens, github_exposure_rates) if cluster_one else None
-    variants = evaluate_architecture_variants(call_sessions, stats, global_tools, candidates, boundary_by_tool, delegation_overhead_tokens, exposure_sessions=exposure_sessions)
+    pruned_flat_baseline = build_pruned_flat_baseline(
+        sessions,
+        stats,
+        global_tools=global_tools,
+    )
+    retained_tools = set(pruned_flat_baseline["tools_retained"])
+    variants = evaluate_architecture_variants(
+        call_sessions,
+        stats,
+        global_tools,
+        candidates,
+        boundary_by_tool,
+        delegation_overhead_tokens,
+        exposure_sessions=exposure_sessions,
+        baseline_tools=retained_tools,
+    )
     strongest_pairs = sorted(({"tool_a": a, "tool_b": b, **metrics} for (a, b), metrics in pairs.items()), key=lambda row: (-float(row["affinity"]), -float(row["co_sessions"]), row["tool_a"], row["tool_b"]))
     tools_report = []
     for name in sorted(stats, key=lambda value: (-stats[value].sessions, -stats[value].calls, value)):
@@ -633,6 +792,7 @@ def analyze(
         "github_exposure_sensitivity": github_sensitivity,
         "cluster_one_subset_analysis": subset_analysis,
         "candidate_decision_table": build_candidate_decision_table(subset_analysis),
+        "pruned_flat_baseline": pruned_flat_baseline,
         "dynamic_tool_group_inventory": dynamic_tool_group_inventory(sessions),
         "provider_availability_diagnostics": provider_availability_diagnostics(sessions),
         "provider_scoped_session_diagnostics": provider_scoped_session_diagnostics(sessions),
