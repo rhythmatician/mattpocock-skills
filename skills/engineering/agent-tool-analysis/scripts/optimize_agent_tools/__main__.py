@@ -65,6 +65,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-cluster-sessions", type=int, default=3)
     parser.add_argument("--delegation-overhead-tokens", type=int, default=0)
     parser.add_argument(
+        "--max-agents",
+        type=int,
+        default=3,
+        help="Maximum specialist count to evaluate in the normal recommendation workflow.",
+    )
+    parser.add_argument(
+        "--communication-tokens-per-handoff",
+        type=float,
+        default=0.0,
+        help="Estimated inter-agent communication cost per observed handoff.",
+    )
+    parser.add_argument(
         "--github-exposure-rates",
         default=",".join(f"{rate:g}" for rate in DEFAULT_GITHUB_EXPOSURE_RATES),
     )
@@ -98,6 +110,10 @@ def _validate_args(args: argparse.Namespace, github_rates: tuple[float, ...]) ->
         raise SystemExit("--min-cluster-sessions must be >= 1")
     if args.delegation_overhead_tokens < 0:
         raise SystemExit("--delegation-overhead-tokens cannot be negative")
+    if args.max_agents < 1:
+        raise SystemExit("--max-agents must be >= 1")
+    if args.communication_tokens_per_handoff < 0:
+        raise SystemExit("--communication-tokens-per-handoff cannot be negative")
     if not github_rates:
         raise SystemExit("--github-exposure-rates must contain at least one rate")
 
@@ -131,6 +147,8 @@ def main() -> int:
         min_cluster_size=args.min_cluster_size,
         min_cluster_sessions=args.min_cluster_sessions,
         delegation_overhead_tokens=args.delegation_overhead_tokens,
+        max_agents=args.max_agents,
+        communication_tokens_per_handoff=args.communication_tokens_per_handoff,
         github_exposure_rates=github_rates,
     )
     report["config"]["explicit_cost_entries"] = len(explicit_costs)
@@ -138,11 +156,16 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "agent_tool_analysis.json"
     markdown_path = output_dir / "agent_tool_analysis.md"
+    manifest_path = output_dir / "architecture_manifest.json"
     json_path.write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     markdown_path.write_text(render_markdown(report), encoding="utf-8")
-    print_summary(report, json_path, markdown_path)
+    manifest_path.write_text(
+        json.dumps(report["architecture_manifest"], indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    print_summary(report, json_path, markdown_path, manifest_path)
     return 0
 
 

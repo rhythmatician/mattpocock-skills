@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from optimize_agent_tools.analysis_pipeline import analyze
 from optimize_agent_tools.partition_search import search_partitions
 from optimize_agent_tools.replay_harness import (
     FROZEN_PRUNED_FLAT_BASELINE_TOOLS,
     build_architecture_manifest,
 )
 from optimize_agent_tools.telemetry_ingestion import Session
+from optimize_agent_tools.tool_definition_registry import DefinitionRecord
 
 
 def _stats() -> dict[str, SimpleNamespace]:
@@ -21,6 +23,56 @@ def _stats() -> dict[str, SimpleNamespace]:
             "shared": 7,
         }.items()
     }
+
+
+def _definition(name: str, tokens: int) -> DefinitionRecord:
+    return DefinitionRecord(
+        name,
+        "codex",
+        "test",
+        name,
+        None,
+        None,
+        tokens * 4,
+        tokens,
+        "test",
+        "explicit",
+        "recovered_definition",
+    )
+
+
+def test_normal_analysis_workflow_includes_generic_specialist_recommendation() -> None:
+    sessions = [
+        Session("one", "codex", ["a", "b"], {"a", "b"}),
+        Session("two", "codex", ["a"], {"a", "b"}),
+    ]
+    definitions = {
+        name: _definition(name, tokens)
+        for name, tokens in {"a": 10, "b": 20}.items()
+    }
+
+    report = analyze(
+        sessions,
+        definitions,
+        {},
+        explicit_path=None,
+        definition_roots=[],
+        min_tool_sessions=1,
+        similarity_threshold=0.35,
+        global_usage_threshold=1.0,
+        min_cluster_size=2,
+        min_cluster_sessions=1,
+        delegation_overhead_tokens=0,
+        max_agents=2,
+    )
+
+    recommendation = report["specialist_recommendation"]
+    assert recommendation["action"] == "inspect_pareto_architectures"
+    assert recommendation["pareto_candidate_ids"]
+    assert report["architecture_manifest"]["baseline_architecture_id"] == (
+        "pruned_flat_baseline"
+    )
+    assert report["partition_search"]["search"]["max_agents"] == 2
 
 
 def test_search_generates_closed_manifest_candidates_and_metrics() -> None:

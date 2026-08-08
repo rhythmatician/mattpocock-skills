@@ -40,6 +40,6 @@ The harness also reports agent activations, inter-agent handoffs, delegation tok
 
 ## Run
 
-Generate or refresh `agent_tool_analysis/agent_tool_analysis.json` first, then run `replay_architectures.py` with both `--architecture-manifest` and `--replay-input`. The CLI verifies that the generated report's retained baseline tools match the manifest.
+Run the normal optimizer first. It writes `agent_tool_analysis/architecture_manifest.json`. Then run `replay_architectures.py` with that manifest and a real `--replay-input`; the CLI verifies that the benchmark report's retained baseline tools match the frozen manifest baseline before comparing candidates.
 
 The example observations are synthetic schema placeholders only and are not quality or architecture evidence. Supply a real replay bundle captured by an external executor before treating results as empirical.

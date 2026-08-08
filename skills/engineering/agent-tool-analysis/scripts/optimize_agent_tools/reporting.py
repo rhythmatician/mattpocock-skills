@@ -15,7 +15,7 @@ def format_tools(values: Iterable[str]) -> str:
 def _number(value: Any, suffix: str = "") -> str:
     if value is None:
         return "unavailable"
-    return f"{value:.1%}{suffix}" if suffix == "%" else f"{value:.1f}{suffix}"
+    return f"{value:.1%}" if suffix == "%" else f"{value:.1f}{suffix}"
 
 
 def _append_table(
@@ -26,6 +26,7 @@ def _append_table(
 
 def render_markdown(report: dict[str, Any]) -> str:
     pruned = report["pruned_flat_baseline"]
+    specialist = report.get("specialist_recommendation")
     lines = [
         "# Agent Tool Exposure Analysis",
         "",
@@ -40,10 +41,29 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Catalog-only safe candidates: {len(pruned['catalog_only_tools_removed'])} tools; exposure benefit unmeasured",
         f"- Unresolved retained runtime-tool exposure: {pruned['unresolved_retained_runtime_tool_exposure']['status']}",
         "",
-        "## Corpus",
+        "## Specialist recommendation",
         "",
-        f"- Sessions analyzed: {report['corpus']['sessions']}",
     ]
+    if specialist is None:
+        lines.extend(["Partition search was not included in this report.", ""])
+    else:
+        lines.extend(
+            [
+                f"**{specialist['headline']}**",
+                "",
+                f"- Pareto candidates: {', '.join(f'`{candidate}`' for candidate in specialist['pareto_candidate_ids']) or 'none'}",
+                f"- Search complete: {'yes' if specialist['search_complete'] else 'no; bounded fallback was used'}",
+                "- Agent names, responsibilities, and routing remain semantic interpretation work; this report only supplies generic tool surfaces and measured trade-offs.",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## Corpus",
+            "",
+            f"- Sessions analyzed: {report['corpus']['sessions']}",
+        ]
+    )
     for key in (
         "sessions_total",
         "sessions_with_calls",
@@ -382,7 +402,12 @@ def render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def print_summary(report: dict[str, Any], json_path: Any, markdown_path: Any) -> None:
+def print_summary(
+    report: dict[str, Any],
+    json_path: Any,
+    markdown_path: Any,
+    manifest_path: Any | None = None,
+) -> None:
     corpus = report["corpus"]
     overhead = report["overhead"]
     print("=" * 72)
@@ -394,6 +419,12 @@ def print_summary(report: dict[str, Any], json_path: Any, markdown_path: Any) ->
     print(f"Clustered tools:   {corpus['active_tools_for_clustering']}")
     print(f"Global candidates: {len(report['global_candidates'])}")
     print(f"Agent candidates:  {len(report['candidate_agents'])}")
+    specialist = report.get("specialist_recommendation")
+    if specialist is not None:
+        print(
+            f"Pareto architectures: {len(specialist['pareto_candidate_ids'])}"
+            + (" (bounded search)" if not specialist["search_complete"] else "")
+        )
     coverage = overhead["known_cost_coverage"]
     print(
         f"\nKnown tool-cost coverage: {coverage['tools_with_known_cost']}/{coverage['tools_total']} (catalog {coverage['catalog_coverage_rate']:.1%}, usage-weighted {coverage['usage_weighted_coverage_rate']:.1%})"
@@ -406,4 +437,6 @@ def print_summary(report: dict[str, Any], json_path: Any, markdown_path: Any) ->
     )
     print(f"\nJSON report:     {json_path.resolve()}")
     print(f"Markdown report: {markdown_path.resolve()}")
+    if manifest_path is not None:
+        print(f"Architecture manifest: {manifest_path.resolve()}")
     print("\nNext: inspect the Markdown report before generating or installing agents.")

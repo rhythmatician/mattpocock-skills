@@ -35,6 +35,7 @@ from .exposure_models import (
     provider_scoped_session_diagnostics,
 )
 from .exposure_reporting import build_exposure_matrix, exposure_matrix_summary
+from .replay_harness import BASELINE_ARCHITECTURE_ID
 from .telemetry_ingestion import Session, normalize_tool_name
 from .tool_definition_registry import (
     DefinitionRecord,
@@ -1282,8 +1283,16 @@ def analyze(
     min_cluster_size: int,
     min_cluster_sessions: int,
     delegation_overhead_tokens: int,
+    max_agents: int = 3,
+    communication_tokens_per_handoff: float = 0.0,
+    max_exhaustive_units: int = 10,
+    max_partition_candidates: int = 5000,
     github_exposure_rates: Iterable[float] = DEFAULT_GITHUB_EXPOSURE_RATES,
 ) -> dict[str, Any]:
+    if max_agents < 1:
+        raise ValueError("max_agents must be at least 1.")
+    if communication_tokens_per_handoff < 0:
+        raise ValueError("Communication cost cannot be negative.")
     observed_names = (
         {
             tool
@@ -1384,6 +1393,20 @@ def analyze(
         global_tools=global_tools,
     )
     retained_tools = set(pruned_flat_baseline["tools_retained"])
+    from .partition_search import search_partitions
+
+    partition_result = search_partitions(
+        sessions=call_sessions,
+        stats=stats,
+        required_tools=retained_tools,
+        global_tools=global_tools,
+        dependencies=KNOWN_DEPENDENCIES,
+        max_agents=max_agents,
+        communication_tokens_per_handoff=communication_tokens_per_handoff,
+        delegation_tokens_per_activation=delegation_overhead_tokens,
+        max_exhaustive_units=max_exhaustive_units,
+        max_partition_candidates=max_partition_candidates,
+    )
     variants = evaluate_architecture_variants(
         call_sessions,
         stats,
@@ -1467,6 +1490,22 @@ def analyze(
         "cluster_one_subset_analysis": subset_analysis,
         "candidate_decision_table": build_candidate_decision_table(subset_analysis),
         "pruned_flat_baseline": pruned_flat_baseline,
+        "architecture_manifest": partition_result.manifest,
+        "partition_search": partition_result.report,
+        "specialist_recommendation": {
+            "action": "inspect_pareto_architectures",
+            "headline": (
+                "Compare the pruned flat baseline with the retained Pareto "
+                f"candidates ({len(partition_result.pareto_candidates)} found); "
+                "semantic specialist names and routing remain an interpretation step."
+            ),
+            "baseline_architecture_id": BASELINE_ARCHITECTURE_ID,
+            "pareto_candidate_ids": [
+                candidate.architecture_id
+                for candidate in partition_result.pareto_candidates
+            ],
+            "search_complete": partition_result.search_complete,
+        },
         "dynamic_tool_group_inventory": dynamic_tool_group_inventory(sessions),
         "provider_availability_diagnostics": provider_availability_diagnostics(
             sessions

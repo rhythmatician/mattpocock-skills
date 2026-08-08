@@ -1,8 +1,9 @@
 # Label-free partition search
 
-`optimize_agent_tools/partition_search.py` generates candidate architectures from
-observed tool sessions. It does not assign semantic labels, learn routes, or
-choose one opaque winner.
+The optimizer's internal `partition_search` module generates candidate
+architectures from observed tool sessions. The normal public entry point is
+`python -m optimize_agent_tools`; the module is not a separate user workflow.
+It does not assign semantic labels, learn routes, or choose one opaque winner.
 
 ## Inputs and search
 
@@ -47,7 +48,9 @@ manifest can be passed directly to `replay_architectures.py`. Replay still owns
 quality evaluation and the strict benchmark gate; partition search only proposes
 and measures candidate surfaces.
 
-For telemetry-backed execution, invoke the module with an analysis report and
-the normal VS Code/Codex session locations. The output JSON contains both the
-manifest and the complete candidate report, including candidates that were not
-on the retained frontier.
+The normal command writes the candidate metrics into
+`agent_tool_analysis/agent_tool_analysis.json` and writes the manifest to
+`agent_tool_analysis/architecture_manifest.json`. The manifest preserves the
+strict frozen `pruned_flat_baseline`; replay is an optional advanced validation
+step and rejects a mismatched benchmark report. Candidate generation is part of
+the normal analyze-and-recommend workflow.

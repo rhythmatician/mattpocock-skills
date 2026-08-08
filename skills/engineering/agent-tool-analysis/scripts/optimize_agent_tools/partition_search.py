@@ -2,27 +2,15 @@
 
 from __future__ import annotations
 
-import argparse
-import json
-import os
-import sys
 from dataclasses import asdict, dataclass, replace
-from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Iterable, Mapping
 
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from optimize_agent_tools.analysis_pipeline import KNOWN_DEPENDENCIES
 from optimize_agent_tools.replay_harness import (
     BASELINE_ARCHITECTURE_ID,
     FROZEN_PRUNED_FLAT_BASELINE_TOOLS,
 )
 from optimize_agent_tools.telemetry_ingestion import (
     Session,
-    get_codex_sessions,
-    get_vscode_sessions,
 )
 
 PARETO_DIMENSIONS = (
@@ -522,74 +510,3 @@ def search_partitions(
     }
     return PartitionSearchResult(marked_all, marked_frontier, manifest, report, complete)
 
-
-def _load_stats(report: Mapping[str, Any]) -> dict[str, SimpleNamespace]:
-    return {
-        row["name"]: SimpleNamespace(
-            definition_tokens=row.get("definition_tokens"),
-            estimated_cost_mid=row.get("estimated_cost_mid"),
-        )
-        for row in report.get("tools", [])
-        if isinstance(row, dict) and isinstance(row.get("name"), str)
-    }
-
-
-def _default_vscode_storage() -> str:
-    return os.path.expanduser(r"~\AppData\Roaming\Code\User\workspaceStorage")
-
-
-def _default_codex_sessions() -> str:
-    return os.path.expanduser(r"~\.codex\sessions")
-
-
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Generate label-free Pareto candidate tool partitions from observed sessions."
-    )
-    parser.add_argument("--analysis-report", default="agent_tool_analysis/agent_tool_analysis.json")
-    parser.add_argument("--vscode-workspace-storage", default=_default_vscode_storage())
-    parser.add_argument("--codex-sessions-dir", default=_default_codex_sessions())
-    parser.add_argument("--output", default="agent_tool_analysis/partition_search.json")
-    parser.add_argument("--max-agents", type=int, default=3)
-    parser.add_argument("--global-tool", action="append", default=[])
-    parser.add_argument("--dependency-map", default=None)
-    parser.add_argument("--communication-tokens-per-handoff", type=float, default=0.0)
-    parser.add_argument("--delegation-tokens-per-activation", type=float, default=0.0)
-    return parser.parse_args()
-
-
-def main() -> int:
-    args = _parse_args()
-    report = json.loads(Path(args.analysis_report).read_text(encoding="utf-8"))
-    vscode_sessions, _ = get_vscode_sessions(args.vscode_workspace_storage)
-    codex_sessions, _ = get_codex_sessions(args.codex_sessions_dir)
-    dependency_map = (
-        json.loads(Path(args.dependency_map).read_text(encoding="utf-8"))
-        if args.dependency_map
-        else KNOWN_DEPENDENCIES
-    )
-    result = search_partitions(
-        sessions=[*vscode_sessions, *codex_sessions],
-        stats=_load_stats(report),
-        required_tools=report["pruned_flat_baseline"]["tools_retained"],
-        global_tools=args.global_tool,
-        dependencies=dependency_map,
-        max_agents=args.max_agents,
-        communication_tokens_per_handoff=args.communication_tokens_per_handoff,
-        delegation_tokens_per_activation=args.delegation_tokens_per_activation,
-    )
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    output = result.manifest | {
-        "partition_search": result.report["search"],
-        "candidates": result.report["candidates"],
-        "pareto_candidate_ids": result.report["pareto_candidate_ids"],
-    }
-    Path(args.output).write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote {len(result.pareto_candidates)} Pareto candidates to {args.output}")
-    return 0
-
-
-if __name__ == "__main__":
-    if __package__ in {None, ""}:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-    raise SystemExit(main())
