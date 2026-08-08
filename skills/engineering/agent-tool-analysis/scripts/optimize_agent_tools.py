@@ -54,24 +54,47 @@ Explicit --tool-costs values always override recovered estimates.
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import math
 import os
-import re
 import statistics
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from exposure_models import (
+    EXPOSURE_MODELS,
+    baseline_exposure_states,
+    exposure_consistency,
+    exposure_model_summary,
+    provider_scoped_session_diagnostics,
+)
+from cost_evaluation import cluster_exposure_economics, scenario_cost
+from clustering import (
+    agglomerative_clusters,
+    all_pair_metrics,
+    build_adjacency_counts,
+    build_session_index,
+    cluster_boundary_metrics,
+    cluster_internal_affinity,
+    pair_key,
+    pair_metrics,
+    tool_boundary_metrics,
+)
+from exposure_reporting import build_exposure_matrix, exposure_matrix_summary
+from telemetry_ingestion import (
+    Session,
+    get_codex_sessions,
+    get_vscode_sessions,
+    normalize_tool_name,
+)
 from tool_definition_registry import (
     DefinitionRecord,
     DefinitionRegistry,
     ExplicitDefinitionProvider,
     ManifestDefinitionProvider,
     MappingDefinitionProvider,
-    legacy_record,
 )
 
 DEFAULT_VSCODE_WORKSPACE_STORAGE = os.path.expanduser(
@@ -88,41 +111,6 @@ DEFAULT_CODEX_DEFINITION_ROOTS = tuple(
     if path
 )
 
-IGNORED_PATTERNS = [
-    r"^turn_(start|end):?",
-    r"^session_start$",
-    r"^chat:",
-    r"^user_message$",
-    r"^agent_response$",
-    r".*Discovery$",
-    r"^Custom Instructions$",
-    r"^Resolve Customizations$",
-    r"^PreToolUse$",
-    r"^PostToolUse$",
-]
-IGNORE_REGEX = re.compile("|".join(IGNORED_PATTERNS), re.IGNORECASE)
-
-TOOL_REMAP = {
-    "memory": "vscode/memory",
-    "runSubagent": "agent",
-    "runTests": "execute/runTests",
-}
-
-TOOL_NAME_REGEX = re.compile(
-    r'"tool_name"\s*:\s*"([^"]+)"|'
-    r'"(?:tool|function)"\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"'
-)
-
-DEFINITION_KEYS = {
-    "description",
-    "input_schema",
-    "inputSchema",
-    "parameters",
-    "schema",
-    "args_schema",
-    "arguments_schema",
-}
-
 # These are operational hints, not automatic "global" assignments.
 KNOWN_DEPENDENCIES = {
     "apply_patch": {"execute/runTests", "create_file"},
@@ -131,46 +119,6 @@ KNOWN_DEPENDENCIES = {
     "list_dir": {"file_search", "grep_search"},
     "exec": {"send_message", "wait"},
 }
-
-
-@dataclass
-class Session:
-    session_id: str
-    source: str
-    calls: list[str] = field(default_factory=list)
-    exposed_tools: set[str] = field(default_factory=set)
-    exposure_source: str = "not_observed"
-    provider_availability: set[str] = field(default_factory=set)
-    provider_tools: dict[str, set[str]] = field(default_factory=dict)
-
-    @property
-    def directly_observed_exposure(self) -> set[str]:
-        """Tool definitions directly observed as exposed in this session."""
-        return self.exposed_tools
-
-    @property
-    def actual_calls(self) -> list[str]:
-        """Tool calls observed in this session; never an exposure proxy."""
-        return self.calls
-
-    @property
-    def tool_set(self) -> set[str]:
-        return set(self.actual_calls)
-
-
-@dataclass
-class ToolDefinition:
-    name: str
-    serialized_chars: int | None
-    estimated_tokens: int | None
-    source: str
-    runtime: str = "unknown"
-    provider: str = "unknown"
-    raw_name: str | None = None
-    description: str | None = None
-    input_schema: Any = None
-    confidence: str = "unknown"
-    evidence_type: str = "unknown"
 
 
 @dataclass
@@ -192,469 +140,18 @@ class ToolStat:
     estimation_confidence: str | None = None
 
 
-def normalize_tool_name(raw_name: str | None) -> str | None:
-    if not raw_name or not isinstance(raw_name, str):
-        return None
-
-    raw_name = raw_name.strip()
-    if not raw_name or IGNORE_REGEX.search(raw_name):
-        return None
-
-    clean_name = raw_name.strip(" \"'")
-
-    if clean_name.startswith("runSubagent-"):
-        return "agent"
-
-    clean_name = TOOL_REMAP.get(clean_name, clean_name)
-
-    if IGNORE_REGEX.search(clean_name):
-        return None
-
-    return clean_name
-
-
-def estimate_tokens_from_chars(char_count: int) -> int:
-    # Portable approximation. Exact tokenizer accounting is runtime/model specific.
-    return max(1, math.ceil(char_count / 4))
-
-
-def canonical_json_length(value: Any) -> int:
-    try:
-        text = json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        )
-    except (TypeError, ValueError):
-        text = repr(value)
-    return len(text)
-
-
-def walk_json(value: Any) -> Iterable[Any]:
-    yield value
-    if isinstance(value, dict):
-        for child in value.values():
-            yield from walk_json(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from walk_json(child)
-
-
-def extract_tool_definitions(event: Any, source: str) -> list[ToolDefinition]:
-    """
-    Best-effort extraction of full tool definitions from arbitrary JSON events.
-
-    A dict is treated as a possible tool definition when it has a string `name`
-    and at least one schema/description-like key.
-    """
-    found: list[ToolDefinition] = []
-
-    for node in walk_json(event):
-        if not isinstance(node, dict):
-            continue
-
-        raw_name = node.get("name")
-        if not isinstance(raw_name, str):
-            continue
-
-        if not any(key in node for key in DEFINITION_KEYS):
-            continue
-
-        name = normalize_tool_name(raw_name)
-        if not name:
-            continue
-
-        definition_subset = {"name": raw_name}
-        for key in DEFINITION_KEYS:
-            if key in node:
-                definition_subset[key] = node[key]
-
-        chars = canonical_json_length(definition_subset)
-        found.append(
-            ToolDefinition(
-                name=name,
-                serialized_chars=chars,
-                estimated_tokens=estimate_tokens_from_chars(chars),
-                source=source,
-                runtime=source,
-                provider="telemetry",
-                raw_name=raw_name,
-                description=(
-                    node.get("description")
-                    if isinstance(node.get("description"), str)
-                    else None
-                ),
-                input_schema=node.get("inputSchema", node.get("input_schema")),
-                confidence="direct_telemetry",
-                evidence_type="recovered_definition",
-            )
-        )
-
-    return found
-
-
-def find_raw_tool_call(event: Any) -> str | None:
-    if not isinstance(event, dict):
-        return None
-
-    for key in ("tool_name",):
-        value = event.get(key)
-        if isinstance(value, str):
-            return value
-
-    item = event.get("item")
-    if isinstance(item, dict):
-        if item.get("type") in {"function_call", "tool_call", "mcp_call"}:
-            value = item.get("name") or item.get("function")
-            if isinstance(value, str):
-                return value
-
-    payload = event.get("payload")
-    if isinstance(payload, dict):
-        payload_type = payload.get("type")
-        if payload_type in {"custom_tool_call", "function_call", "mcp_tool_call"}:
-            value = payload.get("name")
-            if isinstance(value, str):
-                return value
-
-        invocation = payload.get("invocation")
-        if isinstance(invocation, dict):
-            value = invocation.get("tool")
-            if isinstance(value, str):
-                return value
-
-        # Avoid treating arbitrary payload "name" fields as tool calls unless
-        # there is some tool/function-call context.
-        payload_type = str(payload_type or "").lower()
-        if (
-            "tool" in payload_type
-            or "function" in payload_type
-            or "call" in payload_type
-            or "tool" in event
-            or "tool_name" in event
-        ):
-            value = (
-                payload.get("name") or payload.get("tool") or payload.get("tool_name")
-            )
-            if isinstance(value, str):
-                return value
-
-    tool = event.get("tool")
-    if isinstance(tool, str):
-        return tool
-
-    if isinstance(tool, dict):
-        value = tool.get("name")
-        if isinstance(value, str):
-            return value
-
-    function = event.get("function")
-    if isinstance(function, dict):
-        value = function.get("name")
-        if isinstance(value, str):
-            return value
-
-    return None
-
-
-CODEX_CALL_TYPES = {"custom_tool_call", "function_call", "mcp_tool_call"}
-
-
-def extract_codex_calls(event: Any) -> list[str]:
-    """Extract calls from the empirically observed Codex payload paths."""
-    if not isinstance(event, dict):
-        return []
-
-    payload = event.get("payload")
-    if not isinstance(payload, dict):
-        return []
-
-    calls: list[str] = []
-    if payload.get("type") in CODEX_CALL_TYPES:
-        name = payload.get("name")
-        if isinstance(name, str):
-            calls.append(name)
-
-    invocation = payload.get("invocation")
-    if isinstance(invocation, dict):
-        name = invocation.get("tool")
-        if isinstance(name, str):
-            calls.append(name)
-
-    return calls
-
-
-def extract_codex_exposures(event: Any) -> set[str]:
-    """Extract only direct exposure evidence from Codex session metadata."""
-    if not isinstance(event, dict):
-        return set()
-
-    payload = event.get("payload")
-    if not isinstance(payload, dict):
-        return set()
-
-    dynamic_tools = payload.get("dynamic_tools")
-    if not isinstance(dynamic_tools, list):
-        return set()
-
-    exposed: set[str] = set()
-    for group in dynamic_tools:
-        if not isinstance(group, dict):
-            continue
-        tools = group.get("tools")
-        if not isinstance(tools, list):
-            continue
-        for tool in tools:
-            if not isinstance(tool, dict):
-                continue
-            name = normalize_tool_name(tool.get("name"))
-            if name:
-                exposed.add(name)
-    return exposed
-
-
-def normalize_provider_name(raw_name: Any) -> str | None:
-    if not isinstance(raw_name, str):
-        return None
-    name = raw_name.strip()
-    return name or None
-
-
-def extract_codex_provider_metadata(
-    event: Any,
-) -> tuple[set[str], dict[str, set[str]]]:
-    """Extract provider availability and direct provider/tool memberships.
-
-    A provider is considered available only when a Codex dynamic-tool group
-    names it in telemetry. Calls, tool-name prefixes, and missing calls are not
-    provider-availability evidence.
-    """
-    if not isinstance(event, dict):
-        return set(), {}
-
-    payload = event.get("payload")
-    if not isinstance(payload, dict):
-        return set(), {}
-
-    dynamic_tools = payload.get("dynamic_tools")
-    if not isinstance(dynamic_tools, list):
-        return set(), {}
-
-    providers: set[str] = set()
-    provider_tools: dict[str, set[str]] = defaultdict(set)
-    for group in dynamic_tools:
-        if not isinstance(group, dict):
-            continue
-        provider = normalize_provider_name(
-            group.get("provider") or group.get("name") or group.get("id")
-        )
-        if not provider:
-            continue
-        providers.add(provider)
-        tools = group.get("tools")
-        if not isinstance(tools, list):
-            continue
-        for tool in tools:
-            if not isinstance(tool, dict):
-                continue
-            name = normalize_tool_name(tool.get("name"))
-            if name:
-                provider_tools[provider].add(name)
-
-    return providers, dict(provider_tools)
-
-
-def get_vscode_sessions(
-    workspace_storage: str,
-) -> tuple[list[Session], dict[str, ToolDefinition]]:
-    sessions: list[Session] = []
-    definitions: dict[str, ToolDefinition] = {}
-
-    if not os.path.exists(workspace_storage):
-        return sessions, definitions
-
-    pattern = os.path.join(
-        workspace_storage,
-        "*",
-        "github.copilot-chat",
-        "debug-logs",
-        "*",
-        "*.jsonl",
-    )
-
-    files = glob.glob(pattern, recursive=True)
-
-    for file_path in files:
-        session_id = f"vscode:{os.path.relpath(file_path, workspace_storage)}"
-        calls: list[str] = []
-
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-
-                    # Regex fallback catches some debug records that are not
-                    # represented in a stable structured schema.
-                    for match in TOOL_NAME_REGEX.findall(line):
-                        tool_name = normalize_tool_name(match[0] or match[1])
-                        if tool_name:
-                            calls.append(tool_name)
-
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    raw_tool = find_raw_tool_call(event)
-                    tool_name = normalize_tool_name(raw_tool)
-                    if tool_name:
-                        # Avoid immediate duplicate caused by regex + structured
-                        # parsing of the same record.
-                        if not calls or calls[-1] != tool_name:
-                            calls.append(tool_name)
-
-                    for definition in extract_tool_definitions(event, "vscode"):
-                        existing = definitions.get(definition.name)
-                        if (
-                            existing is None
-                            or (
-                                definition.serialized_chars is not None
-                                and (
-                                    existing.serialized_chars is None
-                                    or definition.serialized_chars > existing.serialized_chars
-                                )
-                            )
-                        ):
-                            definitions[definition.name] = definition
-
-        except OSError:
-            continue
-
-        if calls:
-            sessions.append(
-                Session(session_id=session_id, source="vscode", calls=calls)
-            )
-
-    return sessions, definitions
-
-
-def get_codex_sessions(
-    sessions_dir: str,
-) -> tuple[list[Session], dict[str, ToolDefinition]]:
-    sessions: list[Session] = []
-    definitions: dict[str, ToolDefinition] = {}
-
-    if not os.path.exists(sessions_dir):
-        return sessions, definitions
-
-    pattern = os.path.join(sessions_dir, "**", "*.jsonl")
-    files = glob.glob(pattern, recursive=True)
-
-    for file_path in files:
-        session_id = f"codex:{os.path.relpath(file_path, sessions_dir)}"
-        calls: list[str] = []
-        exposed_tools: set[str] = set()
-        provider_availability: set[str] = set()
-        provider_tools: dict[str, set[str]] = defaultdict(set)
-
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    for raw_tool in extract_codex_calls(event):
-                        tool_name = normalize_tool_name(raw_tool)
-                        if tool_name:
-                            calls.append(tool_name)
-
-                    exposed_tools.update(extract_codex_exposures(event))
-                    event_providers, event_provider_tools = (
-                        extract_codex_provider_metadata(event)
-                    )
-                    provider_availability.update(event_providers)
-                    for provider, tools in event_provider_tools.items():
-                        provider_tools[provider].update(tools)
-
-                    for definition in extract_tool_definitions(event, "codex"):
-                        existing = definitions.get(definition.name)
-                        if (
-                            existing is None
-                            or (
-                                definition.serialized_chars is not None
-                                and (
-                                    existing.serialized_chars is None
-                                    or definition.serialized_chars > existing.serialized_chars
-                                )
-                            )
-                        ):
-                            definitions[definition.name] = definition
-
-        except OSError:
-            continue
-
-        if calls or exposed_tools:
-            sessions.append(
-                Session(
-                    session_id=session_id,
-                    source="codex",
-                    calls=calls,
-                    exposed_tools=exposed_tools,
-                    provider_availability=provider_availability,
-                    provider_tools=dict(provider_tools),
-                    exposure_source=(
-                        "codex:payload.dynamic_tools[].tools[].name"
-                        if exposed_tools
-                        else "not_observed"
-                    ),
-                )
-            )
-
-    return sessions, definitions
-
-
-def definition_from_record(record: DefinitionRecord) -> ToolDefinition:
-    """Adapt the registry model to the optimizer's historical cost model."""
-    return ToolDefinition(
-        name=record.normalized_name,
-        serialized_chars=record.serialized_chars,
-        estimated_tokens=record.estimated_tokens,
-        source=record.source,
-        runtime=record.runtime,
-        provider=record.provider,
-        raw_name=record.raw_name,
-        description=record.description,
-        input_schema=record.input_schema,
-        confidence=record.confidence,
-        evidence_type=record.evidence_type,
-    )
-
-
 def acquire_definitions(
     observed_names: Iterable[str],
-    vscode_definitions: dict[str, ToolDefinition],
-    codex_definitions: dict[str, ToolDefinition],
+    vscode_definitions: dict[str, DefinitionRecord],
+    codex_definitions: dict[str, DefinitionRecord],
     explicit_path: str | None,
     definition_roots: Iterable[str],
-) -> tuple[dict[str, ToolDefinition], DefinitionRegistry, ManifestDefinitionProvider, dict[str, Any]]:
+) -> tuple[dict[str, DefinitionRecord], DefinitionRegistry, ManifestDefinitionProvider, dict[str, Any]]:
     """Resolve definitions without treating a call as exposure evidence."""
     explicit_provider = ExplicitDefinitionProvider.from_path(
         explicit_path, normalize_tool_name
     )
-    telemetry_records = [
-        legacy_record(definition, runtime="vscode")
-        for definition in vscode_definitions.values()
-    ] + [
-        legacy_record(definition, runtime="codex")
-        for definition in codex_definitions.values()
-    ]
+    telemetry_records = [*vscode_definitions.values(), *codex_definitions.values()]
     telemetry_provider = MappingDefinitionProvider(telemetry_records, precedence=200)
     manifest_provider = ManifestDefinitionProvider(
         definition_roots, normalize_tool_name, runtime="codex"
@@ -664,9 +161,7 @@ def acquire_definitions(
     )
 
     records = registry.resolve_all(observed_names)
-    definitions = {
-        name: definition_from_record(record) for name, record in records.items()
-    }
+    definitions = records
     explicit_costs = {
         record.normalized_name: record.estimated_tokens
         for record in explicit_provider.records()
@@ -719,7 +214,7 @@ def load_explicit_tool_costs(path: str | None) -> dict[str, int]:
 
 def build_stats(
     sessions: list[Session],
-    definitions: dict[str, ToolDefinition],
+    definitions: dict[str, DefinitionRecord],
     explicit_costs: dict[str, int],
     *,
     call_sessions: list[Session] | None = None,
@@ -854,316 +349,6 @@ def session_population_summary(sessions: list[Session]) -> dict[str, int]:
             bool(session.exposed_tools and not session.calls) for session in sessions
         ),
     }
-
-
-def build_session_index(sessions: list[Session]) -> dict[str, set[int]]:
-    index: dict[str, set[int]] = defaultdict(set)
-    for i, session in enumerate(sessions):
-        for tool in session.tool_set:
-            index[tool].add(i)
-    return dict(index)
-
-
-def build_adjacency_counts(sessions: list[Session]) -> Counter[tuple[str, str]]:
-    counts: Counter[tuple[str, str]] = Counter()
-    for session in sessions:
-        for left, right in zip(session.calls, session.calls[1:]):
-            if left == right:
-                continue
-            pair = pair_key(left, right)
-            counts[pair] += 1
-    return counts
-
-
-def pair_metrics(
-    a: str,
-    b: str,
-    session_index: dict[str, set[int]],
-    adjacency: Counter[tuple[str, str]],
-) -> dict[str, float]:
-    sa = session_index.get(a, set())
-    sb = session_index.get(b, set())
-
-    intersection = len(sa & sb)
-    union = len(sa | sb)
-    jaccard = intersection / union if union else 0.0
-
-    min_support = min(len(sa), len(sb))
-    overlap = intersection / min_support if min_support else 0.0
-
-    pair = pair_key(a, b)
-    adjacent = adjacency[pair]
-    adjacency_rate = adjacent / min_support if min_support else 0.0
-    adjacency_rate = min(1.0, adjacency_rate)
-
-    # Co-occurrence dominates. Ordered adjacency acts as evidence that the tools
-    # are operationally coupled rather than merely appearing in the same task.
-    affinity = 0.55 * jaccard + 0.30 * overlap + 0.15 * adjacency_rate
-
-    return {
-        "co_sessions": intersection,
-        "jaccard": jaccard,
-        "overlap": overlap,
-        "adjacency_count": adjacent,
-        "adjacency_rate": adjacency_rate,
-        "affinity": affinity,
-    }
-
-
-def pair_key(left: str, right: str) -> tuple[str, str]:
-    return (left, right) if left <= right else (right, left)
-
-
-def all_pair_metrics(
-    active_tools: list[str],
-    session_index: dict[str, set[int]],
-    adjacency: Counter[tuple[str, str]],
-) -> dict[tuple[str, str], dict[str, float]]:
-    result = {}
-    for i, a in enumerate(active_tools):
-        for b in active_tools[i + 1 :]:
-            result[(a, b)] = pair_metrics(a, b, session_index, adjacency)
-    return result
-
-
-def cluster_affinity(
-    left: set[str],
-    right: set[str],
-    pairs: dict[tuple[str, str], dict[str, float]],
-) -> float:
-    values = []
-    for a in left:
-        for b in right:
-            key = pair_key(a, b)
-            if key in pairs:
-                values.append(pairs[key]["affinity"])
-    return statistics.fmean(values) if values else 0.0
-
-
-def agglomerative_clusters(
-    tools: list[str],
-    pairs: dict[tuple[str, str], dict[str, float]],
-    threshold: float,
-) -> list[set[str]]:
-    """
-    Dependency-free average-link agglomerative clustering.
-
-    Starts with one tool per cluster and greedily merges the pair of clusters
-    with the highest average cross-cluster affinity until the best remaining
-    affinity is below threshold.
-    """
-    clusters = [{tool} for tool in tools]
-
-    while len(clusters) > 1:
-        best_score = -1.0
-        best_pair: tuple[int, int] | None = None
-
-        for i in range(len(clusters)):
-            for j in range(i + 1, len(clusters)):
-                score = cluster_affinity(clusters[i], clusters[j], pairs)
-                if score > best_score:
-                    best_score = score
-                    best_pair = (i, j)
-
-        if best_pair is None or best_score < threshold:
-            break
-
-        i, j = best_pair
-        merged = clusters[i] | clusters[j]
-        clusters = [cluster for k, cluster in enumerate(clusters) if k not in {i, j}]
-        clusters.append(merged)
-
-    return sorted(clusters, key=lambda c: (-len(c), sorted(c)))
-
-
-def cluster_internal_affinity(
-    cluster: set[str],
-    pairs: dict[tuple[str, str], dict[str, float]],
-) -> float:
-    if len(cluster) < 2:
-        return 0.0
-
-    values = []
-    tools = sorted(cluster)
-    for i, a in enumerate(tools):
-        for b in tools[i + 1 :]:
-            key = pair_key(a, b)
-            if key in pairs:
-                values.append(pairs[key]["affinity"])
-
-    return statistics.fmean(values) if values else 0.0
-
-
-def tool_boundary_metrics(
-    tool: str,
-    cluster: set[str],
-    pairs: dict[tuple[str, str], dict[str, float]],
-    all_clustered_tools: Iterable[str],
-) -> dict[str, float]:
-    internal_values = [
-        pairs[pair_key(tool, other)]["affinity"]
-        for other in cluster
-        if other != tool and pair_key(tool, other) in pairs
-    ]
-    external_values = [
-        pairs[pair_key(tool, other)]["affinity"]
-        for other in all_clustered_tools
-        if other not in cluster and pair_key(tool, other) in pairs
-    ]
-    mean_internal = statistics.fmean(internal_values) if internal_values else 0.0
-    best_external = max(external_values) if external_values else 0.0
-    return {
-        "mean_internal_affinity": mean_internal,
-        "best_external_affinity": best_external,
-        "boundary_margin": mean_internal - best_external,
-    }
-
-
-def cluster_boundary_metrics(
-    cluster: set[str],
-    clusters: list[set[str]],
-    pairs: dict[tuple[str, str], dict[str, float]],
-    all_clustered_tools: Iterable[str],
-    session_index: dict[str, set[int]],
-    sessions: list[Session],
-) -> dict[str, float]:
-    tool_metrics = [
-        tool_boundary_metrics(tool, cluster, pairs, all_clustered_tools)
-        for tool in cluster
-    ]
-    external_values = [
-        metric["best_external_affinity"]
-        for metric in tool_metrics
-        if metric["best_external_affinity"] > 0
-    ]
-    covered = set().union(*(session_index.get(tool, set()) for tool in cluster))
-    cluster_session_sets = [
-        set().union(*(session_index.get(tool, set()) for tool in candidate))
-        for candidate in clusters
-    ]
-    cluster_position = clusters.index(cluster)
-    other_sessions = set().union(
-        *(
-            value
-            for i, value in enumerate(cluster_session_sets)
-            if i != cluster_position
-        )
-    )
-    exclusive = len(covered - other_sessions)
-    overlapping = len(covered & other_sessions)
-    return {
-        "internal_affinity": cluster_internal_affinity(cluster, pairs),
-        "max_external_affinity": max(external_values) if external_values else 0.0,
-        "mean_boundary_margin": statistics.fmean(
-            metric["boundary_margin"] for metric in tool_metrics
-        )
-        if tool_metrics
-        else 0.0,
-        "session_coverage": len(covered) / len(sessions) if sessions else 0.0,
-        "exclusive_session_coverage": exclusive / len(sessions) if sessions else 0.0,
-        "overlapping_session_coverage": overlapping / len(sessions)
-        if sessions
-        else 0.0,
-    }
-
-
-def build_exposure_matrix(
-    sessions: list[Session],
-    stats: dict[str, ToolStat],
-) -> list[dict[str, Any]]:
-    """Return only observed session/tool states; absent pairs are implicit zeroes."""
-    matrix: list[dict[str, Any]] = []
-    for session in sessions:
-        observed_names = sorted(session.exposed_tools | session.tool_set)
-        for name in observed_names:
-            if name not in stats:
-                continue
-            stat = stats[name]
-            matrix.append(
-                {
-                    "session_id": session.session_id,
-                    "tool_name": name,
-                    "directly_observed_exposure": name in session.directly_observed_exposure,
-                    "actual_call": name in session.actual_calls,
-                    "exposed": name in session.exposed_tools,
-                    "called": name in session.tool_set,
-                    "call_count": session.calls.count(name),
-                    "definition_tokens": stat.definition_tokens,
-                    "definition_source": stat.definition_cost_source,
-                    "exposure_source": (
-                        session.exposure_source
-                        if name in session.exposed_tools
-                        else "not_observed"
-                    ),
-                }
-            )
-    return matrix
-
-
-def exposure_matrix_summary(
-    sessions: list[Session],
-    stats: dict[str, ToolStat],
-) -> dict[str, int]:
-    """Return aggregate dimensions for the sparse exposure matrix."""
-    return {
-        "sessions": len(sessions),
-        "known_tools": len(stats),
-        "possible_rows": len(sessions) * len(stats),
-        "observed_rows": len(build_exposure_matrix(sessions, stats)),
-    }
-
-
-def exposure_consistency(
-    sessions: list[Session],
-) -> dict[str, int]:
-    calls_without_direct_exposure = sum(
-        1
-        for session in sessions
-        for tool in session.actual_calls
-        if tool not in session.directly_observed_exposure
-    )
-    return {
-        "sessions_with_direct_exposure": sum(bool(s.exposed_tools) for s in sessions),
-        "sessions_without_direct_exposure": sum(not s.exposed_tools for s in sessions),
-        "called_tools_without_direct_exposure": calls_without_direct_exposure,
-    }
-
-
-def exposure_model_summary(sessions: list[Session]) -> list[dict[str, Any]]:
-    """Summarize direct and inferred exposure without merging them."""
-    runtime_tools = observed_runtime_tools(sessions)
-    provider_by_tool = provider_families_by_tool(sessions)
-    rows = []
-    for model in EXPOSURE_MODELS:
-        states = {
-            session.session_id: baseline_exposure_state(
-                session,
-                model,
-                runtime_tools,
-                provider_by_tool,
-            )
-            for session in sessions
-        }
-        rows.append(
-            {
-                "model": model,
-                "description": EXPOSURE_MODEL_DESCRIPTIONS[model],
-                "sessions": len(sessions),
-                "runtime_tool_catalog_size": len(runtime_tools),
-                "sessions_with_inferred_exposure": sum(
-                    bool(states[session.session_id].inferred_baseline_exposure)
-                    for session in sessions
-                ),
-                "inferred_exposure_rows": sum(
-                    len(states[session.session_id].inferred_baseline_exposure)
-                    for session in sessions
-                ),
-                "sessions_with_provider_availability": sum(
-                    bool(session.provider_availability) for session in sessions
-                ),
-            }
-        )
-    return rows
 
 
 def percentile(values: list[int], q: float) -> float | None:
@@ -1496,118 +681,6 @@ def expected_known_token_cost(
     }
 
 
-@dataclass(frozen=True)
-class BaselineExposure:
-    directly_observed_exposure: frozenset[str]
-    inferred_baseline_exposure: frozenset[str]
-    actual_calls: frozenset[str]
-
-    @property
-    def exposed_tools(self) -> frozenset[str]:
-        return self.directly_observed_exposure | self.inferred_baseline_exposure
-
-
-def observed_runtime_tools(sessions: list[Session]) -> set[str]:
-    """Return the corpus-level observed Codex runtime-tool catalog.
-
-    This catalog is an explicit counterfactual input. It is not rebuilt from a
-    session's calls while evaluating that session's baseline exposure.
-    """
-    return {
-        tool
-        for session in sessions
-        if session.source == "codex"
-        for tool in session.directly_observed_exposure | session.tool_set
-    }
-
-
-def provider_families_by_tool(sessions: list[Session]) -> dict[str, set[str]]:
-    """Map tools to provider families using direct dynamic-tool telemetry.
-
-    Calls and dotted tool names are deliberately excluded. The provider-scoped
-    model must not inherit the all-runtime catalog's call-derived tools; both
-    provider availability and provider/tool membership need direct telemetry.
-    """
-    families: dict[str, set[str]] = defaultdict(set)
-    for session in sessions:
-        for provider, tools in session.provider_tools.items():
-            for tool in tools:
-                families[tool].add(provider)
-
-    return dict(families)
-
-
-def baseline_exposure_state(
-    session: Session,
-    exposure_model: str,
-    runtime_tools: set[str],
-    provider_by_tool: dict[str, set[str]],
-) -> BaselineExposure:
-    """Build a session baseline without promoting calls to direct exposure."""
-    if exposure_model not in EXPOSURE_MODELS:
-        raise ValueError(f"Unknown exposure model: {exposure_model}")
-
-    directly_observed = frozenset(session.directly_observed_exposure)
-    inferred: set[str] = set()
-    if exposure_model == "all_runtime_tools" and session.source == "codex":
-        inferred.update(runtime_tools)
-    elif exposure_model == "provider_scoped" and session.source == "codex":
-        inferred.update(
-            tool
-            for tool in provider_by_tool
-            if provider_by_tool.get(tool, set()) & session.provider_availability
-        )
-
-    return BaselineExposure(
-        directly_observed_exposure=directly_observed,
-        inferred_baseline_exposure=frozenset(inferred - directly_observed),
-        actual_calls=frozenset(session.actual_calls),
-    )
-
-
-def baseline_exposure_states(
-    sessions: list[Session],
-    exposure_model: str,
-) -> dict[str, BaselineExposure]:
-    runtime_tools = observed_runtime_tools(sessions)
-    provider_by_tool = provider_families_by_tool(sessions)
-    return {
-        session.session_id: baseline_exposure_state(
-            session,
-            exposure_model,
-            runtime_tools,
-            provider_by_tool,
-        )
-        for session in sessions
-    }
-
-
-def provider_scoped_session_diagnostics(
-    sessions: list[Session],
-) -> list[dict[str, Any]]:
-    """Report provider-scoped evidence and inferred exposure per session."""
-    states = baseline_exposure_states(sessions, "provider_scoped")
-    rows = []
-    for session in sessions:
-        state = states[session.session_id]
-        rows.append(
-            {
-                "session_id": session.session_id,
-                "source": session.source,
-                "provider_availability_observed": bool(
-                    session.provider_availability
-                ),
-                "providers_available": sorted(session.provider_availability),
-                "inferred_runtime_tools": sorted(state.inferred_baseline_exposure),
-                "directly_exposed_tools": sorted(
-                    state.directly_observed_exposure
-                ),
-                "called_tools": sorted(state.actual_calls),
-            }
-        )
-    return rows
-
-
 def sensitivity_summary(
     scenarios_by_exposure_model: dict[str, dict[str, dict[str, float | None]]],
 ) -> dict[str, Any]:
@@ -1655,14 +728,6 @@ def sensitivity_summary(
         ),
         "sign_stable": sign_stable,
     }
-
-
-def scenario_cost(stat: ToolStat, scenario: str) -> float | None:
-    if stat.definition_tokens is not None:
-        return float(stat.definition_tokens)
-    if scenario not in COST_SCENARIOS:
-        raise ValueError(f"Unknown cost scenario: {scenario}")
-    return getattr(stat, f"estimated_cost_{scenario}")
 
 
 def reduction_metrics(
@@ -1825,6 +890,16 @@ def evaluate_architecture_variants(
             }
 
         sensitivity = sensitivity_summary(cost_scenarios_by_exposure_model)
+        exposure_economics = (
+            cluster_exposure_economics(
+                sessions=scenario_sessions,
+                stats=stats,
+                specialist_tools=specialist_tools,
+                delegation_overhead_tokens=delegation_overhead_tokens,
+            )
+            if specialist_tools
+            else None
+        )
         evaluated.append(
             {
                 **variant,
@@ -1832,6 +907,7 @@ def evaluate_architecture_variants(
                 "scenarios": scenarios,
                 "sensitivity": sensitivity,
                 **sensitivity,
+                "exposure_economics": exposure_economics,
                 "scenarios_by_exposure_model": {
                     model: {
                         scenario: {
@@ -2292,6 +1368,85 @@ def render_markdown(report: dict[str, Any]) -> str:
                         values.append(f"{value:.1f}")
                 lines.append(f"| {label} | " + " | ".join(values) + " |")
             lines.append("")
+            economics = (variant.get("exposure_economics") or {}).get(
+                "exposure_models", {}
+            ).get(exposure_model)
+            if economics is not None:
+                lines.append("##### Specialist exposure economics")
+                lines.append("")
+                lines.append(
+                    "| Metric | Value | Low | Mid | High |"
+                )
+                lines.append("|---|---:|---:|---:|---:|")
+                for key, label in (
+                    (
+                        "sessions_with_any_specialist_tool_exposed",
+                        "Sessions with any specialist tool exposed",
+                    ),
+                    (
+                        "sessions_with_all_specialist_tools_exposed",
+                        "Sessions with all specialist tools exposed",
+                    ),
+                    (
+                        "average_specialist_tools_exposed_per_session",
+                        "Average specialist tools exposed/session",
+                    ),
+                ):
+                    value = economics[key]
+                    value_text = f"{value:.2f}" if isinstance(value, float) else str(value)
+                    lines.append(f"| {label} | {value_text} | — | — | — |")
+                for key, label in (
+                    (
+                        "baseline_specialist_tokens_per_session",
+                        "Baseline specialist tokens/session",
+                    ),
+                    (
+                        "loaded_specialist_tokens_per_session",
+                        "Loaded specialist tokens/session",
+                    ),
+                    (
+                        "net_specialist_token_reduction_per_session",
+                        "Net specialist token reduction/session",
+                    ),
+                    (
+                        "break_even_baseline_tokens_per_session",
+                        "Break-even baseline tokens/session",
+                    ),
+                    (
+                        "break_even_full_cluster_exposure_rate",
+                        "Break-even full-cluster exposure rate",
+                    ),
+                ):
+                    values = []
+                    for scenario in COST_SCENARIOS:
+                        value = economics[key][scenario]
+                        if value is None:
+                            values.append("unavailable")
+                        elif key == "break_even_full_cluster_exposure_rate":
+                            values.append(f"{value:.1%}")
+                        else:
+                            values.append(f"{value:.1f}")
+                    lines.append(f"| {label} | — | " + " | ".join(values) + " |")
+                lines.append("")
+                lines.append(
+                    "| Tool | Sessions baseline-exposed | Exposure rate | Sessions called | Usage rate | Baseline token contribution (low/mid/high) |"
+                )
+                lines.append("|---|---:|---:|---:|---:|---:|")
+                for tool in economics["tools"]:
+                    contribution = "/".join(
+                        (
+                            f"{tool['baseline_token_contribution'][scenario]:.1f}"
+                            if tool["baseline_token_contribution"][scenario] is not None
+                            else "n/a"
+                        )
+                        for scenario in COST_SCENARIOS
+                    )
+                    lines.append(
+                        f"| `{tool['tool']}` | {tool['sessions_baseline_exposed']} | "
+                        f"{tool['exposure_rate']:.1%} | {tool['sessions_called']} | "
+                        f"{tool['usage_rate']:.1%} | {contribution} |"
+                    )
+                lines.append("")
         lines.append("")
     lines.append("")
 

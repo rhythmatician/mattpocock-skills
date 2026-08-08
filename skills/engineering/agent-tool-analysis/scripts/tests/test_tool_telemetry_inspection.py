@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 ROOT = Path(__file__).parents[1]
 if str(ROOT) not in sys.path:
@@ -27,6 +29,46 @@ optimizer = _load_module("optimize_agent_tools", "optimize_agent_tools.py")
 sys.modules["optimize_agent_tools"] = optimizer
 inspector = _load_module("inspect_codex_telemetry", "inspect_codex_telemetry.py")
 
+from tool_definition_registry import DefinitionRecord
+from telemetry_ingestion import (
+    Session,
+    extract_codex_calls,
+    extract_codex_exposures,
+    extract_codex_provider_metadata,
+    find_raw_tool_call,
+    normalize_tool_name,
+)
+from exposure_models import baseline_exposure_states
+from cost_evaluation import cluster_exposure_economics
+from clustering import (
+    build_session_index,
+    cluster_boundary_metrics,
+    pair_metrics,
+    tool_boundary_metrics,
+)
+from exposure_reporting import build_exposure_matrix, exposure_matrix_summary
+
+
+def make_definition(
+    name: str,
+    serialized_chars: int | None,
+    estimated_tokens: int | None,
+    runtime: str = "codex",
+) -> DefinitionRecord:
+    return DefinitionRecord(
+        name,
+        runtime,
+        "telemetry",
+        name,
+        None,
+        None,
+        serialized_chars,
+        estimated_tokens,
+        f"telemetry:{runtime}",
+        "direct_telemetry",
+        "recovered_definition",
+    )
+
 
 def test_codex_payload_function_call_name_is_joined_to_catalog() -> None:
     event = {
@@ -38,7 +80,7 @@ def test_codex_payload_function_call_name_is_joined_to_catalog() -> None:
         },
     }
 
-    assert optimizer.find_raw_tool_call(event) == "exec"
+    assert find_raw_tool_call(event) == "exec"
 
 
 def test_codex_extractor_returns_native_and_invocation_calls() -> None:
@@ -51,9 +93,9 @@ def test_codex_extractor_returns_native_and_invocation_calls() -> None:
         },
     }
 
-    assert optimizer.extract_codex_calls(event) == ["exec", "github.fetch_file"]
+    assert extract_codex_calls(event) == ["exec", "github.fetch_file"]
     assert (
-        optimizer.find_raw_tool_call(
+        find_raw_tool_call(
             {
                 "payload": {
                     "type": "mcp_tool_call_end",
@@ -145,8 +187,8 @@ def test_inspector_call_counts_match_optimizer_call_extraction() -> None:
     }
     optimizer_calls = {}
     for event in events:
-        for raw_name in optimizer.extract_codex_calls(event):
-            name = optimizer.normalize_tool_name(raw_name)
+        for raw_name in extract_codex_calls(event):
+            name = normalize_tool_name(raw_name)
             assert name is not None
             optimizer_calls[name] = optimizer_calls.get(name, 0) + 1
 
@@ -154,10 +196,10 @@ def test_inspector_call_counts_match_optimizer_call_extraction() -> None:
 
 
 def test_cost_coverage_separates_catalog_and_usage_weighted_rates() -> None:
-    sessions = [optimizer.Session("one", "codex", ["used", "unknown"])]
+    sessions = [Session("one", "codex", ["used", "unknown"])]
     definitions = {
-        "catalog_only": optimizer.ToolDefinition("catalog_only", 40, 10, "codex"),
-        "used": optimizer.ToolDefinition("used", 20, 5, "codex"),
+        "catalog_only": make_definition("catalog_only", 40, 10),
+        "used": make_definition("used", 20, 5),
     }
 
     stats = optimizer.build_stats(sessions, definitions, {})
@@ -194,12 +236,12 @@ def test_codex_exposure_extractor_uses_dynamic_tool_definitions_only() -> None:
         },
     }
 
-    assert optimizer.extract_codex_exposures(event) == {
+    assert extract_codex_exposures(event) == {
         "github.fetch_issue",
         "github.fetch_pr",
     }
     assert (
-        optimizer.extract_codex_exposures(
+        extract_codex_exposures(
             {"payload": {"type": "function_call", "name": "exec"}}
         )
         == set()
@@ -222,7 +264,7 @@ def test_codex_provider_metadata_requires_named_dynamic_tool_group() -> None:
         }
     }
 
-    providers, provider_tools = optimizer.extract_codex_provider_metadata(event)
+    providers, provider_tools = extract_codex_provider_metadata(event)
 
     assert providers == {"github"}
     assert provider_tools == {
@@ -232,17 +274,17 @@ def test_codex_provider_metadata_requires_named_dynamic_tool_group() -> None:
 
 def test_exposure_matrix_does_not_turn_usage_into_exposure() -> None:
     sessions = [
-        optimizer.Session(
+        Session(
             "one",
             "codex",
             ["used"],
             exposed_tools=set(),
         )
     ]
-    definitions = {"used": optimizer.ToolDefinition("used", 40, 10, "codex")}
+    definitions = {"used": make_definition("used", 40, 10)}
     stats = optimizer.build_stats(sessions, definitions, {})
 
-    row = optimizer.build_exposure_matrix(sessions, stats)[0]
+    row = build_exposure_matrix(sessions, stats)[0]
     assert row["called"] is True
     assert row["exposed"] is False
     assert row["exposure_source"] == "not_observed"
@@ -256,10 +298,10 @@ def test_exposure_matrix_does_not_turn_usage_into_exposure() -> None:
 
 def test_definition_tokens_account_for_exposed_but_unused_sessions() -> None:
     sessions = [
-        optimizer.Session("used", "codex", ["tool"], {"tool"}),
-        optimizer.Session("unused", "codex", [], {"tool"}),
+        Session("used", "codex", ["tool"], {"tool"}),
+        Session("unused", "codex", [], {"tool"}),
     ]
-    definitions = {"tool": optimizer.ToolDefinition("tool", 40, 10, "codex")}
+    definitions = {"tool": make_definition("tool", 40, 10)}
 
     stat = optimizer.build_stats(sessions, definitions, {})["tool"]
 
@@ -275,7 +317,7 @@ def test_boundary_metrics_measure_internal_and_external_affinity() -> None:
         ("a", "c"): {"affinity": 0.3},
         ("b", "c"): {"affinity": 0.2},
     }
-    metrics = optimizer.tool_boundary_metrics("a", {"a", "b"}, pairs, ["a", "b", "c"])
+    metrics = tool_boundary_metrics("a", {"a", "b"}, pairs, ["a", "b", "c"])
 
     assert metrics == {
         "mean_internal_affinity": 0.8,
@@ -286,19 +328,19 @@ def test_boundary_metrics_measure_internal_and_external_affinity() -> None:
 
 def test_cluster_boundary_metrics_reports_exclusive_and_overlapping_coverage() -> None:
     sessions = [
-        optimizer.Session("one", "codex", ["a"], {"a"}),
-        optimizer.Session("two", "codex", ["a", "c"], {"a", "c"}),
-        optimizer.Session("three", "codex", ["c"], {"c"}),
+        Session("one", "codex", ["a"], {"a"}),
+        Session("two", "codex", ["a", "c"], {"a", "c"}),
+        Session("three", "codex", ["c"], {"c"}),
     ]
     clusters = [{"a", "b"}, {"c"}]
-    session_index = optimizer.build_session_index(sessions)
+    session_index = build_session_index(sessions)
     pairs = {
         ("a", "b"): {"affinity": 0.8},
         ("a", "c"): {"affinity": 0.3},
         ("b", "c"): {"affinity": 0.2},
     }
 
-    metrics = optimizer.cluster_boundary_metrics(
+    metrics = cluster_boundary_metrics(
         clusters[0], clusters, pairs, ["a", "b", "c"], session_index, sessions
     )
 
@@ -312,9 +354,9 @@ def test_cluster_boundary_metrics_reports_exclusive_and_overlapping_coverage() -
 
 def test_session_population_summary_keeps_call_and_exposure_denominators_separate() -> None:
     sessions = [
-        optimizer.Session("call", "codex", ["exec"], set()),
-        optimizer.Session("both", "codex", ["exec"], {"exec"}),
-        optimizer.Session("exposure", "codex", [], {"create_thread"}),
+        Session("call", "codex", ["exec"], set()),
+        Session("both", "codex", ["exec"], {"exec"}),
+        Session("exposure", "codex", [], {"create_thread"}),
     ]
 
     assert optimizer.session_population_summary(sessions) == {
@@ -329,9 +371,9 @@ def test_session_population_summary_keeps_call_and_exposure_denominators_separat
 
 def test_usage_rate_uses_call_bearing_sessions_only() -> None:
     sessions = [
-        optimizer.Session("call", "codex", ["exec"]),
-        optimizer.Session("call-two", "codex", ["other"]),
-        optimizer.Session("exposure-only", "codex", [], {"exec"}),
+        Session("call", "codex", ["exec"]),
+        Session("call-two", "codex", ["other"]),
+        Session("exposure-only", "codex", [], {"exec"}),
     ]
 
     stats = optimizer.build_stats(sessions, {}, {})
@@ -371,11 +413,8 @@ def test_registry_precedence_preserves_unresolved_tools() -> None:
     assert registry.resolve("missing") is None
 
 
-def test_definition_from_record_preserves_unknown_estimated_tokens() -> None:
-    from tool_definition_registry import DefinitionRecord
-
-    definition = optimizer.definition_from_record(
-        DefinitionRecord(
+def test_definition_record_preserves_unknown_estimated_tokens() -> None:
+    definition = DefinitionRecord(
             "unknown",
             "codex",
             "runtime_manifest",
@@ -388,7 +427,6 @@ def test_definition_from_record_preserves_unknown_estimated_tokens() -> None:
             "unresolved",
             "unresolved",
         )
-    )
 
     assert definition.estimated_tokens is None
     assert definition.serialized_chars is None
@@ -396,13 +434,13 @@ def test_definition_from_record_preserves_unknown_estimated_tokens() -> None:
 
 def test_unresolved_cost_estimates_are_separate_empirical_quantiles() -> None:
     sessions = [
-        optimizer.Session("one", "codex", ["resolved_low", "unknown"]),
-        optimizer.Session("two", "codex", ["resolved_high"], {"unknown"}),
+        Session("one", "codex", ["resolved_low", "unknown"]),
+        Session("two", "codex", ["resolved_high"], {"unknown"}),
     ]
     definitions = {
-        "resolved_low": optimizer.ToolDefinition("resolved_low", 40, 10, "codex"),
-        "resolved_high": optimizer.ToolDefinition("resolved_high", 80, 20, "codex"),
-        "unknown": optimizer.ToolDefinition("unknown", None, None, "unknown"),
+        "resolved_low": make_definition("resolved_low", 40, 10),
+        "resolved_high": make_definition("resolved_high", 80, 20),
+        "unknown": make_definition("unknown", None, None, "unknown"),
     }
 
     stats = optimizer.build_stats(sessions, definitions, {})
@@ -437,12 +475,12 @@ def test_relative_reduction_calculation_is_correct() -> None:
 
 def test_cost_scenarios_measure_raw_cluster_reduction() -> None:
     sessions = [
-        optimizer.Session("one", "codex", ["resolved", "unknown"], {"resolved", "unknown"}),
-        optimizer.Session("two", "codex", ["resolved"], {"resolved", "unknown"}),
+        Session("one", "codex", ["resolved", "unknown"], {"resolved", "unknown"}),
+        Session("two", "codex", ["resolved"], {"resolved", "unknown"}),
     ]
     definitions = {
-        "resolved": optimizer.ToolDefinition("resolved", 40, 10, "codex"),
-        "unknown": optimizer.ToolDefinition("unknown", None, None, "unknown"),
+        "resolved": make_definition("resolved", 40, 10),
+        "unknown": make_definition("unknown", None, None, "unknown"),
     }
     stats = optimizer.build_stats(sessions, definitions, {})
     agents = [{"candidate_id": "cluster_01", "tools": ["unknown"]}]
@@ -470,11 +508,11 @@ def test_cost_scenarios_measure_raw_cluster_reduction() -> None:
 
 def _variant_test_stats() -> dict[str, optimizer.ToolStat]:
     sessions = [
-        optimizer.Session("one", "codex", ["a", "b"], {"a", "b", "c", "d"}),
-        optimizer.Session("two", "codex", ["c"], {"a", "b", "c", "d"}),
+        Session("one", "codex", ["a", "b"], {"a", "b", "c", "d"}),
+        Session("two", "codex", ["c"], {"a", "b", "c", "d"}),
     ]
     definitions = {
-        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30, "d": 40}.items()
     }
     return optimizer.build_stats(sessions, definitions, {})
@@ -482,11 +520,11 @@ def _variant_test_stats() -> dict[str, optimizer.ToolStat]:
 
 def test_independent_variant_with_overhead_reports_negative_reduction() -> None:
     sessions = [
-        optimizer.Session("one", "codex", ["a"], {"a", "b"}),
-        optimizer.Session("two", "codex", ["b"], {"a", "b"}),
+        Session("one", "codex", ["a"], {"a", "b"}),
+        Session("two", "codex", ["b"], {"a", "b"}),
     ]
     definitions = {
-        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 10}.items()
     }
     stats = optimizer.build_stats(sessions, definitions, {})
@@ -509,9 +547,9 @@ def test_independent_variant_with_overhead_reports_negative_reduction() -> None:
 
 
 def test_independent_variant_does_not_move_tools_from_other_clusters() -> None:
-    sessions = [optimizer.Session("one", "codex", ["a", "c"], {"a", "c"})]
+    sessions = [Session("one", "codex", ["a", "c"], {"a", "c"})]
     definitions = {
-        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
     }
     stats = optimizer.build_stats(sessions, definitions, {})
@@ -535,11 +573,11 @@ def test_independent_variant_does_not_move_tools_from_other_clusters() -> None:
 
 def test_boundary_pruning_keeps_pruned_tools_on_parent() -> None:
     sessions = [
-        optimizer.Session("one", "codex", ["a", "b"], {"a", "b", "c"}),
-        optimizer.Session("two", "codex", ["c"], {"a", "b", "c"}),
+        Session("one", "codex", ["a", "b"], {"a", "b", "c"}),
+        Session("two", "codex", ["c"], {"a", "b", "c"}),
     ]
     definitions = {
-        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
     }
     stats = optimizer.build_stats(sessions, definitions, {})
@@ -567,10 +605,10 @@ def test_boundary_pruning_keeps_pruned_tools_on_parent() -> None:
 
 def test_variants_preserve_historical_called_tool_coverage() -> None:
     sessions = [
-        optimizer.Session("one", "codex", ["a", "b", "c"], {"a", "b", "c"})
+        Session("one", "codex", ["a", "b", "c"], {"a", "b", "c"})
     ]
     definitions = {
-        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20, "c": 30}.items()
     }
     stats = optimizer.build_stats(sessions, definitions, {})
@@ -592,8 +630,8 @@ def test_variants_preserve_historical_called_tool_coverage() -> None:
 def test_baseline_variant_always_reports_zero_reduction() -> None:
     stats = _variant_test_stats()
     sessions = [
-        optimizer.Session("one", "codex", ["a", "b"], {"a", "b", "c", "d"}),
-        optimizer.Session("two", "codex", ["c"], {"a", "b", "c", "d"}),
+        Session("one", "codex", ["a", "b"], {"a", "b", "c", "d"}),
+        Session("two", "codex", ["c"], {"a", "b", "c", "d"}),
     ]
 
     baseline = optimizer.evaluate_architecture_variants(
@@ -605,7 +643,9 @@ def test_baseline_variant_always_reports_zero_reduction() -> None:
         delegation_overhead_tokens=100,
     )[0]
 
-    for scenario in optimizer.COST_SCENARIOS:
+    from cost_evaluation import COST_SCENARIOS
+
+    for scenario in COST_SCENARIOS:
         metrics = baseline["scenarios"][scenario]
         assert metrics["absolute_token_reduction_per_session"] == 0
         assert metrics["relative_token_reduction"] == 0
@@ -627,7 +667,7 @@ def test_manifest_provider_recovers_advertised_definition_without_fabrication(
     )
 
     provider = ManifestDefinitionProvider(
-        [str(tmp_path)], optimizer.normalize_tool_name, runtime="codex"
+        [str(tmp_path)], normalize_tool_name, runtime="codex"
     )
 
     record = provider.resolve("github.fetch_issue")
@@ -642,23 +682,23 @@ def test_manifest_provider_recovers_advertised_definition_without_fabrication(
 
 def test_exposure_matrix_is_sparse() -> None:
     sessions = [
-        optimizer.Session("one", "codex", ["used"]),
-        optimizer.Session("two", "codex", [], {"unused"}),
+        Session("one", "codex", ["used"]),
+        Session("two", "codex", [], {"unused"}),
     ]
     definitions = {
-        "used": optimizer.ToolDefinition("used", 40, 10, "codex"),
-        "unused": optimizer.ToolDefinition("unused", 40, 10, "codex"),
-        "never": optimizer.ToolDefinition("never", 40, 10, "codex"),
+        "used": make_definition("used", 40, 10),
+        "unused": make_definition("unused", 40, 10),
+        "never": make_definition("never", 40, 10),
     }
     stats = optimizer.build_stats(sessions, definitions, {})
 
-    matrix = optimizer.build_exposure_matrix(sessions, stats)
+    matrix = build_exposure_matrix(sessions, stats)
 
     assert {(row["session_id"], row["tool_name"]) for row in matrix} == {
         ("one", "used"),
         ("two", "unused"),
     }
-    assert optimizer.exposure_matrix_summary(sessions, stats) == {
+    assert exposure_matrix_summary(sessions, stats) == {
         "sessions": 2,
         "known_tools": 3,
         "possible_rows": 6,
@@ -667,9 +707,9 @@ def test_exposure_matrix_is_sparse() -> None:
 
 
 def test_called_tools_never_become_directly_observed_exposure() -> None:
-    session = optimizer.Session("one", "codex", ["called_only"])
+    session = Session("one", "codex", ["called_only"])
 
-    state = optimizer.baseline_exposure_states(
+    state = baseline_exposure_states(
         [session], "all_runtime_tools"
     )[session.session_id]
 
@@ -680,11 +720,11 @@ def test_called_tools_never_become_directly_observed_exposure() -> None:
 
 def test_observed_only_reproduces_direct_exposure_without_call_oracle() -> None:
     sessions = [
-        optimizer.Session("called", "codex", ["called_only"]),
-        optimizer.Session("exposed", "codex", [], {"direct"}),
+        Session("called", "codex", ["called_only"]),
+        Session("exposed", "codex", [], {"direct"}),
     ]
     definitions = {
-        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"called_only": 10, "direct": 20}.items()
     }
     stats = optimizer.build_stats(sessions, definitions, {})
@@ -703,11 +743,11 @@ def test_observed_only_reproduces_direct_exposure_without_call_oracle() -> None:
 
 def test_all_runtime_tools_charges_one_parent_runtime_surface() -> None:
     sessions = [
-        optimizer.Session("one", "codex", ["a"]),
-        optimizer.Session("two", "codex", ["b"]),
+        Session("one", "codex", ["a"]),
+        Session("two", "codex", ["b"]),
     ]
     definitions = {
-        name: optimizer.ToolDefinition(name, tokens * 4, tokens, "codex")
+        name: make_definition(name, tokens * 4, tokens)
         for name, tokens in {"a": 10, "b": 20}.items()
     }
     stats = optimizer.build_stats(sessions, definitions, {})
@@ -726,12 +766,12 @@ def test_all_runtime_tools_charges_one_parent_runtime_surface() -> None:
 
 def test_specialist_tools_leave_parent_and_load_only_on_activation() -> None:
     sessions = [
-        optimizer.Session("idle", "codex", []),
-        optimizer.Session("active", "codex", ["specialist"]),
+        Session("idle", "codex", []),
+        Session("active", "codex", ["specialist"]),
     ]
     definitions = {
-        "parent": optimizer.ToolDefinition("parent", 80, 20, "codex"),
-        "specialist": optimizer.ToolDefinition("specialist", 40, 10, "codex"),
+        "parent": make_definition("parent", 80, 20),
+        "specialist": make_definition("specialist", 40, 10),
     }
     stats = optimizer.build_stats(sessions, definitions, {})
     # Make both tools part of the observed runtime catalog without exposing
@@ -753,7 +793,7 @@ def test_specialist_tools_leave_parent_and_load_only_on_activation() -> None:
 
 def test_provider_scoped_requires_provider_availability_telemetry() -> None:
     sessions = [
-        optimizer.Session(
+        Session(
             "available",
             "codex",
             [],
@@ -761,9 +801,9 @@ def test_provider_scoped_requires_provider_availability_telemetry() -> None:
             provider_availability={"github"},
             provider_tools={"github": {"github.list", "github.get"}},
         ),
-        optimizer.Session("called", "codex", ["github.get"]),
+        Session("called", "codex", ["github.get"]),
     ]
-    states = optimizer.baseline_exposure_states(sessions, "provider_scoped")
+    states = baseline_exposure_states(sessions, "provider_scoped")
 
     assert states["available"].inferred_baseline_exposure == frozenset({"github.get"})
     assert states["called"].inferred_baseline_exposure == frozenset()
@@ -772,16 +812,16 @@ def test_provider_scoped_requires_provider_availability_telemetry() -> None:
 
 def test_provider_scoped_does_not_infer_called_only_dotted_tools() -> None:
     sessions = [
-        optimizer.Session(
+        Session(
             "available",
             "codex",
             [],
             provider_availability={"github"},
         ),
-        optimizer.Session("called", "codex", ["github.get"]),
+        Session("called", "codex", ["github.get"]),
     ]
 
-    states = optimizer.baseline_exposure_states(sessions, "provider_scoped")
+    states = baseline_exposure_states(sessions, "provider_scoped")
 
     assert states["available"].inferred_baseline_exposure == frozenset()
 
@@ -820,3 +860,94 @@ def test_sensitivity_summary_is_not_stable_when_decision_models_disagree() -> No
     }
 
     assert optimizer.sensitivity_summary(scenarios)["sign_stable"] is False
+
+
+def test_cluster_exposure_economics_reports_break_even_and_tool_contributions() -> None:
+    sessions = [
+        Session(
+            "active",
+            "codex",
+            ["github.one"],
+            {"github.one", "github.two"},
+        ),
+        Session(
+            "partial",
+            "codex",
+            ["github.two"],
+            {"github.two"},
+        ),
+        Session("idle", "codex", [], set()),
+    ]
+    definitions = {
+        "github.one": make_definition("github.one", 40, 10),
+        "github.two": make_definition("github.two", 80, 20),
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    diagnostics = cluster_exposure_economics(
+        sessions=sessions,
+        stats=stats,
+        specialist_tools={"github.one", "github.two"},
+        delegation_overhead_tokens=0,
+    )
+
+    assert diagnostics["specialist_tool_count"] == 2
+    assert diagnostics["specialist_definition_tokens_mid"] == 30.0
+    assert diagnostics["activation_sessions"] == 2
+    assert diagnostics["activation_rate"] == 2 / 3
+
+    observed = diagnostics["exposure_models"]["observed_only"]
+    assert observed["sessions_with_any_specialist_tool_exposed"] == 2
+    assert observed["sessions_with_all_specialist_tools_exposed"] == 1
+    assert observed["average_specialist_tools_exposed_per_session"] == 1.0
+    assert observed["baseline_specialist_tokens_per_session"]["mid"] == 50 / 3
+    assert observed["loaded_specialist_tokens_per_session"]["mid"] == 20.0
+    assert observed["net_specialist_token_reduction_per_session"]["mid"] == pytest.approx(-10 / 3)
+    assert observed["break_even_baseline_tokens_per_session"]["mid"] == 20.0
+    assert observed["break_even_full_cluster_exposure_rate"]["mid"] == 2 / 3
+
+    one = next(row for row in observed["tools"] if row["tool"] == "github.one")
+    assert one["sessions_baseline_exposed"] == 1
+    assert one["exposure_rate"] == 1 / 3
+    assert one["sessions_called"] == 1
+    assert observed["net_specialist_token_reduction_per_session"]["mid"] == pytest.approx(-10 / 3)
+    assert one["baseline_token_contribution"]["mid"] == 10 / 3
+
+
+def test_cluster_exposure_economics_uses_provider_scoped_tool_membership() -> None:
+    sessions = [
+        Session(
+            "github-available",
+            "codex",
+            [],
+            set(),
+            provider_availability={"github"},
+            provider_tools={"github": {"github.one"}},
+        ),
+        Session(
+            "other-provider",
+            "codex",
+            [],
+            set(),
+            provider_availability={"other"},
+            provider_tools={"other": {"other.tool"}},
+        ),
+    ]
+    definitions = {
+        "github.one": make_definition("github.one", 40, 10),
+        "github.two": make_definition("github.two", 80, 20),
+    }
+    stats = optimizer.build_stats(sessions, definitions, {})
+
+    diagnostics = cluster_exposure_economics(
+        sessions=sessions,
+        stats=stats,
+        specialist_tools={"github.one", "github.two"},
+        delegation_overhead_tokens=0,
+    )
+
+    provider = diagnostics["exposure_models"]["provider_scoped"]
+    assert provider["sessions_with_any_specialist_tool_exposed"] == 1
+    assert provider["sessions_with_all_specialist_tools_exposed"] == 0
+    assert provider["average_specialist_tools_exposed_per_session"] == 0.5
+    assert provider["baseline_specialist_tokens_per_session"]["mid"] == 5.0
