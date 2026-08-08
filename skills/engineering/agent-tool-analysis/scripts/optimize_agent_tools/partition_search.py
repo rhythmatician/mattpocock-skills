@@ -7,7 +7,10 @@ from typing import Any, Iterable, Mapping
 
 from optimize_agent_tools.replay_harness import (
     BASELINE_ARCHITECTURE_ID,
-    FROZEN_PRUNED_FLAT_BASELINE_TOOLS,
+)
+from optimize_agent_tools.exposure_models import (
+    BaselineExposure,
+    baseline_exposure_states,
 )
 from optimize_agent_tools.telemetry_ingestion import (
     Session,
@@ -33,6 +36,7 @@ class PartitionCandidate:
     historical_activation_rates: tuple[float, ...]
     cross_agent_session_frequency: float
     expected_handoff_count: float
+    expected_delegation_count: float
     expected_context_cost_before_communication: float | None
     expected_context_cost_after_communication: float | None
     max_agent_definition_cost: float | None
@@ -40,6 +44,7 @@ class PartitionCandidate:
     dependency_closed: bool
     is_cost_complete: bool
     is_pareto_optimal: bool = False
+    pareto_scope: str = "global"
 
     @property
     def agent_count(self) -> int:
@@ -55,6 +60,8 @@ class PartitionSearchResult:
     manifest: dict[str, Any]
     report: dict[str, Any]
     search_complete: bool
+    pareto_scope: str
+    search_strategy: str
 
 
 @dataclass(frozen=True)
@@ -95,8 +102,16 @@ def _pair_key(left: str, right: str) -> tuple[str, str]:
     return (left, right) if left <= right else (right, left)
 
 
-def _observed_surface(session: Session) -> set[str]:
-    return set(session.exposed_tools or session.tool_set)
+def _observed_surface(
+    session: Session, exposure: BaselineExposure
+) -> set[str] | None:
+    if (
+        session.exposure_source == "not_observed"
+        and not session.exposed_tools
+        and not exposure.inferred_baseline_exposure
+    ):
+        return None
+    return set(exposure.exposed_tools)
 
 
 def _build_graph(sessions: list[Session], tools: frozenset[str]) -> _Graph:
@@ -292,6 +307,7 @@ def _candidate_metrics(
     dependencies: Mapping[str, Iterable[str]],
     delegation_tokens: float,
     communication_tokens: float,
+    exposure_model: str,
 ) -> PartitionCandidate:
     costs: tuple[float | None, ...] = tuple(
         _sum_known(_cost(stats.get(tool)) for tool in tools)
@@ -303,6 +319,8 @@ def _candidate_metrics(
     activation_counts = [0] * len(agent_tools)
     cross_sessions = 0
     handoffs = 0
+    delegation_count = 0
+    exposure_states = baseline_exposure_states(sessions, exposure_model)
     context_before: list[float | None] = []
     context_after: list[float | None] = []
     for session in sessions:
@@ -323,18 +341,26 @@ def _candidate_metrics(
         handoffs += sum(
             left != right for left, right in zip(ordered_agents, ordered_agents[1:])
         )
+        delegation_count += max(len(called_agents) - 1, 0)
 
-        surface = _observed_surface(session)
+        surface = _observed_surface(
+            session, exposure_states[session.session_id]
+        )
+        if surface is None:
+            context_before.append(None)
+            context_after.append(None)
+            continue
         before_costs = [_cost(stats.get(tool)) for tool in surface & retained_tools]
         context_before.append(_sum_known(before_costs))
         parent_costs = [_cost(stats.get(tool)) for tool in surface & parent_tools]
         active_costs = [costs[index] for index in called_agents]
-        context_after.append(
-            _sum_known(parent_costs + active_costs)
-        )
+        context_after.append(_sum_known(parent_costs + active_costs))
 
     session_count = len(sessions)
-    rates = tuple(count / session_count if session_count else 0.0 for count in activation_counts)
+    rates = tuple(
+        count / session_count if session_count else 0.0
+        for count in activation_counts
+    )
     before_cost = (
         sum(value for value in context_before if value is not None) / session_count
         if session_count and all(value is not None for value in context_before)
@@ -346,9 +372,10 @@ def _candidate_metrics(
         else None
     )
     expected_handoffs = handoffs / session_count if session_count else 0.0
+    expected_delegations = delegation_count / session_count if session_count else 0.0
     after_communication = (
         after
-        + sum(rates) * delegation_tokens
+        + expected_delegations * delegation_tokens
         + expected_handoffs * communication_tokens
         if after is not None
         else None
@@ -360,8 +387,11 @@ def _candidate_metrics(
         parent_tools=tuple(sorted(parent_tools)),
         agent_definition_costs=costs,
         historical_activation_rates=rates,
-        cross_agent_session_frequency=(cross_sessions / session_count if session_count else 0.0),
+        cross_agent_session_frequency=(
+            cross_sessions / session_count if session_count else 0.0
+        ),
         expected_handoff_count=expected_handoffs,
+        expected_delegation_count=expected_delegations,
         expected_context_cost_before_communication=before_cost,
         expected_context_cost_after_communication=after_communication,
         max_agent_definition_cost=(
@@ -370,7 +400,9 @@ def _candidate_metrics(
             else None
         ),
         cross_agent_edge_weight=_partition_edge_weight(agent_tools, graph),
-        dependency_closed=_is_dependency_closed(agent_tools, parent_tools, dependencies),
+        dependency_closed=_is_dependency_closed(
+            agent_tools, parent_tools, dependencies
+        ),
         is_cost_complete=complete,
     )
 
@@ -410,6 +442,8 @@ def search_partitions(
     delegation_tokens_per_activation: float = 0.0,
     max_exhaustive_units: int = 10,
     max_partition_candidates: int = 5000,
+    baseline_tools: Iterable[str] | None = None,
+    exposure_model: str = "observed_only",
 ) -> PartitionSearchResult:
     """Search generic, dependency-closed partitions and retain their Pareto frontier."""
     if max_agents < 1:
@@ -429,12 +463,18 @@ def search_partitions(
     required_retained = _dependency_closure(roots, dependencies)
     global_surface = _dependency_closure(global_set, dependencies)
     retained = required_retained | global_surface
+    baseline_surface = (
+        _strings(baseline_tools, "baseline_tools")
+        if baseline_tools is not None
+        else retained
+    )
     if not global_surface <= retained:
         raise ValueError("Global tools must be retained tools.")
     graph = _build_graph(session_list, retained)
     units = _dependency_units(retained, dependencies, global_surface)
     all_candidates: list[PartitionCandidate] = []
     complete = True
+    exhaustive = True
     max_k = min(max_agents, len(units)) if units else (1 if retained else 0)
     for agent_count in range(1, max_k + 1):
         estimated = _stirling_second_kind(len(units), agent_count)
@@ -442,6 +482,7 @@ def search_partitions(
             partitions = tuple(_set_partitions(units, agent_count))
         else:
             complete = False
+            exhaustive = False
             partitions = _heuristic_partitions(
                 units, agent_count, graph, max_partition_candidates
             )
@@ -458,14 +499,17 @@ def search_partitions(
                 dependencies,
                 delegation_tokens_per_activation,
                 communication_tokens_per_handoff,
+                exposure_model,
             )
             all_candidates.append(candidate)
     frontier = _pareto(all_candidates)
     frontier_ids = {candidate.architecture_id for candidate in frontier}
+    pareto_scope = "global" if exhaustive else "evaluated_subset"
     marked_all = tuple(
         replace(
             candidate,
             is_pareto_optimal=candidate.architecture_id in frontier_ids,
+            pareto_scope=pareto_scope,
         )
         for candidate in all_candidates
     )
@@ -473,7 +517,7 @@ def search_partitions(
     architectures: list[dict[str, Any]] = [
         {
             "architecture_id": BASELINE_ARCHITECTURE_ID,
-            "parent_tools": sorted(FROZEN_PRUNED_FLAT_BASELINE_TOOLS),
+            "parent_tools": sorted(baseline_surface),
             "agents": {},
         }
     ]
@@ -488,15 +532,24 @@ def search_partitions(
         }
         for candidate in marked_frontier
     )
+    search_provenance = {
+        "search_complete": complete,
+        "search_strategy": "exhaustive" if exhaustive else "bounded",
+        "pareto_scope": pareto_scope,
+    }
     manifest = {
         "baseline_architecture_id": BASELINE_ARCHITECTURE_ID,
         "historical_tool_capability_tools": sorted(required_retained),
+        "search_provenance": search_provenance,
         "architectures": architectures,
     }
     report = {
         "search": {
             "max_agents": max_agents,
             "search_complete": complete,
+            "exposure_model": exposure_model,
+            "pareto_scope": pareto_scope,
+            "search_strategy": "exhaustive" if exhaustive else "bounded",
             "partition_units": [sorted(unit) for unit in units],
             "global_tools": sorted(global_surface),
             "dependency_edges": {
@@ -506,7 +559,18 @@ def search_partitions(
         },
         "candidates": [_candidate_dict(candidate) for candidate in marked_all],
         "pareto_candidate_ids": [candidate.architecture_id for candidate in marked_frontier],
+        "pareto_scope": pareto_scope,
+        "search_strategy": "exhaustive" if exhaustive else "bounded",
+        "search_provenance": search_provenance,
         "manifest": manifest,
     }
-    return PartitionSearchResult(marked_all, marked_frontier, manifest, report, complete)
+    return PartitionSearchResult(
+        marked_all,
+        marked_frontier,
+        manifest,
+        report,
+        complete,
+        pareto_scope,
+        "exhaustive" if exhaustive else "bounded",
+    )
 

@@ -6,39 +6,6 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping
 
 BASELINE_ARCHITECTURE_ID = "pruned_flat_baseline"
-FROZEN_PRUNED_FLAT_BASELINE_TOOLS = frozenset(
-    {
-        "exec",
-        "followup_task",
-        "github.add_comment_to_issue",
-        "github.add_issue_assignees",
-        "github.add_review_to_pr",
-        "github.create_issue",
-        "github.create_pull_request",
-        "github.fetch_file",
-        "github.fetch_issue",
-        "github.fetch_issue_comments",
-        "github.fetch_pr",
-        "github.fetch_pr_comments",
-        "github.fetch_pr_patch",
-        "github.get_pr_info",
-        "github.get_user_login",
-        "github.list_pr_changed_filenames",
-        "github.list_pull_request_review_threads",
-        "github.list_pull_request_reviews",
-        "github.reply_to_review_comment",
-        "github.resolve_review_thread",
-        "github.search_prs",
-        "github.update_issue",
-        "github.update_pull_request",
-        "interrupt_agent",
-        "list_agents",
-        "send_message",
-        "spawn_agent",
-        "wait",
-        "wait_agent",
-    }
-)
 
 
 def _string_set(values: Iterable[str], field_name: str) -> frozenset[str]:
@@ -97,15 +64,8 @@ class ArchitectureManifest:
             raise ValueError("The manifest baseline architecture must be present.")
         if not self.historical_tool_capability_tools:
             raise ValueError("Historical tool-capability tools must not be empty.")
-        if self.baseline_architecture_id == BASELINE_ARCHITECTURE_ID:
-            baseline = self.baseline
-            if (
-                baseline.parent_tools != FROZEN_PRUNED_FLAT_BASELINE_TOOLS
-                or baseline.agent_tools
-            ):
-                raise ValueError(
-                    "pruned_flat_baseline must match the frozen flat tool surface."
-                )
+        if self.baseline.agent_tools:
+            raise ValueError("The manifest baseline must be flat.")
 
     @property
     def architecture_ids(self) -> tuple[str, ...]:
@@ -208,6 +168,7 @@ class ReplayAggregate:
     inter_agent_communication_tokens: int
     turns: int
     agent_activations: int
+    delegation_count: int
     inter_agent_handoffs: int
     wall_clock_seconds: float
 
@@ -220,7 +181,6 @@ class ReplayAggregate:
     def orchestration_tokens(self) -> int:
         """Total explicit delegation and inter-agent communication cost."""
         return self.delegation_tokens + self.inter_agent_communication_tokens
-
 
 @dataclass(frozen=True)
 class ReplayResult:
@@ -368,6 +328,7 @@ def _aggregate(
         ),
         turns=sum(observation.turns for observation in observations),
         agent_activations=sum(len(path) for path in actual_paths),
+        delegation_count=sum(max(len(path) - 1, 0) for path in actual_paths),
         inter_agent_handoffs=sum(max(len(path) - 1, 0) for path in actual_paths),
         wall_clock_seconds=sum(
             observation.wall_clock_seconds for observation in observations

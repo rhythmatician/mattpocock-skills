@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from optimize_agent_tools.analysis_pipeline import analyze
 from optimize_agent_tools.partition_search import search_partitions
 from optimize_agent_tools.replay_harness import (
-    FROZEN_PRUNED_FLAT_BASELINE_TOOLS,
     build_architecture_manifest,
 )
 from optimize_agent_tools.telemetry_ingestion import Session
@@ -127,8 +126,9 @@ def test_search_generates_closed_manifest_candidates_and_metrics() -> None:
     assert candidate.historical_activation_rates == (2 / 3, 2 / 3)
     assert candidate.cross_agent_session_frequency == 1 / 3
     assert candidate.expected_handoff_count == 1 / 3
+    assert candidate.expected_delegation_count == 1 / 3
     assert candidate.expected_context_cost_before_communication == 100 / 3
-    assert candidate.expected_context_cost_after_communication == 142 / 3
+    assert candidate.expected_context_cost_after_communication == 136 / 3
     assert candidate.dependency_closed is True
 
 
@@ -157,7 +157,7 @@ def test_search_retains_only_non_dominated_candidates_in_frontier() -> None:
     )
 
 
-def test_generated_manifest_is_consumable_by_replay_harness() -> None:
+def test_generated_manifest_uses_the_run_baseline() -> None:
     result = search_partitions(
         sessions=[Session("one", "codex", ["exec"], {"exec"})],
         stats={"exec": SimpleNamespace(definition_tokens=10)},
@@ -166,7 +166,85 @@ def test_generated_manifest_is_consumable_by_replay_harness() -> None:
     )
 
     manifest = build_architecture_manifest(result.manifest)
-    assert manifest.baseline.parent_tools == FROZEN_PRUNED_FLAT_BASELINE_TOOLS
+    assert manifest.baseline.parent_tools == frozenset({"exec"})
+
+
+def test_missing_observed_exposure_is_not_treated_as_zero_context() -> None:
+    result = search_partitions(
+        sessions=[Session("one", "codex", ["a"], exposure_source="not_observed")],
+        stats={"a": SimpleNamespace(definition_tokens=10)},
+        required_tools={"a"},
+        max_agents=1,
+    )
+
+    candidate = result.all_candidates[0]
+    assert candidate.expected_context_cost_before_communication is None
+    assert candidate.expected_context_cost_after_communication is None
+    assert candidate.is_cost_complete is False
+
+
+def test_delegation_excludes_initial_handling_agent_and_keeps_handoffs_separate() -> None:
+    result = search_partitions(
+        sessions=[Session("one", "codex", ["a", "b"], {"a", "b"})],
+        stats=_stats(),
+        required_tools={"a", "b"},
+        max_agents=2,
+        communication_tokens_per_handoff=4,
+        delegation_tokens_per_activation=2,
+    )
+
+    candidate = next(
+        candidate for candidate in result.all_candidates if candidate.agent_count == 2
+    )
+    assert candidate.expected_delegation_count == 1.0
+    assert candidate.expected_handoff_count == 1.0
+    assert candidate.expected_context_cost_after_communication == 36.0
+
+
+def test_search_reports_pareto_scope_for_exhaustive_and_bounded_search() -> None:
+    sessions = [Session("one", "codex", ["a", "b"], {"a", "b"})]
+    exhaustive = search_partitions(
+        sessions=sessions,
+        stats=_stats(),
+        required_tools={"a", "b"},
+        max_agents=2,
+    )
+    bounded = search_partitions(
+        sessions=sessions,
+        stats=_stats(),
+        required_tools={"a", "b"},
+        max_agents=2,
+        max_exhaustive_units=1,
+    )
+
+    assert exhaustive.pareto_scope == "global"
+    assert exhaustive.search_strategy == "exhaustive"
+    assert exhaustive.report["search"]["pareto_scope"] == "global"
+    assert all(
+        candidate.pareto_scope == "global"
+        for candidate in exhaustive.pareto_candidates
+    )
+    assert bounded.pareto_scope == "evaluated_subset"
+    assert bounded.search_strategy == "bounded"
+    assert all(
+        candidate.pareto_scope == "evaluated_subset"
+        for candidate in bounded.pareto_candidates
+    )
+
+
+def test_all_runtime_exposure_model_can_evaluate_missing_direct_exposure() -> None:
+    result = search_partitions(
+        sessions=[Session("one", "codex", ["a"], exposure_source="not_observed")],
+        stats={"a": SimpleNamespace(definition_tokens=10)},
+        required_tools={"a"},
+        max_agents=1,
+        exposure_model="all_runtime_tools",
+    )
+
+    candidate = result.all_candidates[0]
+    assert candidate.expected_context_cost_before_communication == 10.0
+    assert candidate.expected_context_cost_after_communication == 10.0
+    assert candidate.is_cost_complete is True
 
 
 def test_global_tool_dependencies_stay_on_parent_surface() -> None:

@@ -139,6 +139,7 @@ def _aggregate_report(result: Any) -> dict[str, Any]:
         "orchestration_tokens": aggregate.orchestration_tokens,
         "turns": aggregate.turns,
         "agent_activations": aggregate.agent_activations,
+        "delegation_count": aggregate.delegation_count,
         "inter_agent_handoffs": aggregate.inter_agent_handoffs,
         "wall_clock_seconds": aggregate.wall_clock_seconds,
     }

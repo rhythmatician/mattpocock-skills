@@ -1406,6 +1406,8 @@ def analyze(
         delegation_tokens_per_activation=delegation_overhead_tokens,
         max_exhaustive_units=max_exhaustive_units,
         max_partition_candidates=max_partition_candidates,
+        baseline_tools=retained_tools,
+        exposure_model="observed_only",
     )
     variants = evaluate_architecture_variants(
         call_sessions,
@@ -1505,6 +1507,8 @@ def analyze(
                 for candidate in partition_result.pareto_candidates
             ],
             "search_complete": partition_result.search_complete,
+            "search_strategy": partition_result.search_strategy,
+            "pareto_scope": partition_result.pareto_scope,
         },
         "dynamic_tool_group_inventory": dynamic_tool_group_inventory(sessions),
         "provider_availability_diagnostics": provider_availability_diagnostics(

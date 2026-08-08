@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 from optimize_agent_tools.replay_harness import (  # noqa: E402
     BASELINE_ARCHITECTURE_ID,
-    FROZEN_PRUNED_FLAT_BASELINE_TOOLS,
     ReplayObservation,
     ReplayTask,
     build_architecture_manifest,
@@ -18,15 +17,16 @@ HISTORICAL_TOOLS = frozenset({"exec", "review_tool", "file_tool"})
 
 
 def manifest_raw() -> dict:
+    baseline_tools = ["exec"]
     return {
         "baseline_architecture_id": BASELINE_ARCHITECTURE_ID,
         "historical_tool_capability_tools": sorted(
-            FROZEN_PRUNED_FLAT_BASELINE_TOOLS
+            baseline_tools
         ),
         "architectures": [
             {
                 "architecture_id": BASELINE_ARCHITECTURE_ID,
-                "parent_tools": sorted(FROZEN_PRUNED_FLAT_BASELINE_TOOLS),
+                "parent_tools": baseline_tools,
                 "agents": {},
             },
             {
@@ -65,26 +65,18 @@ def observation(
     )
 
 
-def test_manifest_supports_arbitrary_architectures_and_preserves_frozen_baseline() -> None:
+def test_manifest_supports_arbitrary_architectures_and_owns_its_baseline() -> None:
     manifest = build_architecture_manifest(manifest_raw())
 
     assert manifest.architecture_ids == (
         BASELINE_ARCHITECTURE_ID,
         "two_agents",
     )
-    assert manifest.baseline.parent_tools == FROZEN_PRUNED_FLAT_BASELINE_TOOLS
+    assert manifest.baseline.parent_tools == frozenset({"exec"})
     assert manifest.architectures[1].agent_tools == {
         "review_agent": frozenset({"review_tool"}),
         "file_agent": frozenset({"file_tool"}),
     }
-
-
-def test_manifest_rejects_non_frozen_baseline() -> None:
-    raw = manifest_raw()
-    raw["architectures"][0]["parent_tools"] = ["exec"]
-
-    with pytest.raises(ValueError, match="frozen flat tool surface"):
-        build_architecture_manifest(raw)
 
 
 def test_manifest_requires_pruned_flat_baseline_name() -> None:
@@ -125,6 +117,7 @@ def test_activation_path_supports_zero_one_and_multiple_handoffs() -> None:
 
     assert seen_paths == [(), ("review_agent",), ("review_agent", "file_agent")]
     assert result.aggregate.agent_activations == 3
+    assert result.aggregate.delegation_count == 1
     assert result.aggregate.inter_agent_handoffs == 1
     assert result.aggregate.delegation_tokens == 9
     assert result.aggregate.inter_agent_communication_tokens == 5
@@ -221,11 +214,7 @@ def test_report_evaluates_every_manifest_architecture_without_hard_coded_ids() -
             ],
         },
     }
-    benchmark = {
-        "pruned_flat_baseline": {
-            "tools_retained": sorted(FROZEN_PRUNED_FLAT_BASELINE_TOOLS)
-        }
-    }
+    benchmark = {"pruned_flat_baseline": {"tools_retained": ["exec"]}}
 
     report = build_report(bundle, benchmark, raw_manifest)
 
@@ -233,6 +222,15 @@ def test_report_evaluates_every_manifest_architecture_without_hard_coded_ids() -
     assert set(report["comparisons"]) == {"two_agents"}
     assert report["architectures"]["two_agents"]["inter_agent_handoffs"] == 1
     assert report["architectures"]["two_agents"]["orchestration_tokens"] == 11
+
+
+def test_report_rejects_baseline_drift_against_analysis_artifact() -> None:
+    with pytest.raises(ValueError, match="does not match manifest"):
+        build_report(
+            {"tasks": [], "observations": {}},
+            {"pruned_flat_baseline": {"tools_retained": ["different_tool"]}},
+            manifest_raw(),
+        )
 
 
 def test_report_rejects_incomplete_operational_measurements() -> None:
@@ -253,11 +251,7 @@ def test_report_rejects_incomplete_operational_measurements() -> None:
                     for architecture_id in (BASELINE_ARCHITECTURE_ID, "two_agents")
                 },
             },
-            {
-                "pruned_flat_baseline": {
-                    "tools_retained": sorted(FROZEN_PRUNED_FLAT_BASELINE_TOOLS)
-                }
-            },
+            {"pruned_flat_baseline": {"tools_retained": ["exec"]}},
             raw_manifest,
         )
 
@@ -291,10 +285,6 @@ def test_report_rejects_malformed_actual_activation_path() -> None:
                     for architecture_id in (BASELINE_ARCHITECTURE_ID, "two_agents")
                 },
             },
-            {
-                "pruned_flat_baseline": {
-                    "tools_retained": sorted(FROZEN_PRUNED_FLAT_BASELINE_TOOLS)
-                }
-            },
+            {"pruned_flat_baseline": {"tools_retained": ["exec"]}},
             raw_manifest,
         )
