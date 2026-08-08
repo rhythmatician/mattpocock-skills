@@ -440,34 +440,24 @@ def build_pruned_flat_baseline(
         exposure_model="observed_only",
         baseline_tools=retained_tools,
     )
-    scenarios = {
-        scenario: {
-            "baseline_tokens_per_session_before_pruning": before[scenario][
-                "baseline_tokens_per_session"
-            ],
-            "baseline_tokens_per_session_after_pruning": after[scenario][
-                "baseline_tokens_per_session"
-            ],
-            "absolute_reduction": (
-                before[scenario]["baseline_tokens_per_session"]
-                - after[scenario]["baseline_tokens_per_session"]
-                if before[scenario]["baseline_tokens_per_session"] is not None
-                and after[scenario]["baseline_tokens_per_session"] is not None
-                else None
-            ),
-            "relative_reduction": (
-                (
-                    before[scenario]["baseline_tokens_per_session"]
-                    - after[scenario]["baseline_tokens_per_session"]
-                )
-                / before[scenario]["baseline_tokens_per_session"]
-                if before[scenario]["baseline_tokens_per_session"]
-                and after[scenario]["baseline_tokens_per_session"] is not None
-                else None
-            ),
+    scenarios: dict[str, dict[str, float | None]] = {}
+    for scenario in COST_SCENARIOS:
+        before_tokens = before[scenario]["baseline_tokens_per_session"]
+        after_tokens = after[scenario]["baseline_tokens_per_session"]
+        if before_tokens is None or after_tokens is None:
+            absolute_reduction = None
+            relative_reduction = None
+        else:
+            absolute_reduction = before_tokens - after_tokens
+            relative_reduction = (
+                absolute_reduction / before_tokens if before_tokens else None
+            )
+        scenarios[scenario] = {
+            "baseline_tokens_per_session_before_pruning": before_tokens,
+            "baseline_tokens_per_session_after_pruning": after_tokens,
+            "absolute_reduction": absolute_reduction,
+            "relative_reduction": relative_reduction,
         }
-        for scenario in COST_SCENARIOS
-    }
     called_tools = {tool for session in sessions for tool in session.tool_set}
     directly_observed_never_used_tools = {
         name
