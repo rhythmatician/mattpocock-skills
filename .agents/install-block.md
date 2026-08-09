@@ -34,6 +34,12 @@ npx skills@latest add mattpocock/skills
 
 Pick the skills you want, and which coding agents to install them on. **The installer lets you choose which skills to take: make sure `setup-matt-pocock-skills` is one of them.**
 
+If you are installing a fork into Codex globally, replace the repository with your fork and run:
+
+```bash
+npx skills@latest add <owner>/<repo> --global --agent codex --copy
+```
+
 </canonical-block>
 
 …and the single-skill form wherever one skill is named on its own. Note that **`docs/` pages are not a consumer of this block**: ai-hero renders the install widget above the body, so a page that writes the commands out duplicates it. See [writing-docs.md](./writing-docs.md).
