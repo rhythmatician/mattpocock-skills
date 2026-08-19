@@ -1,0 +1,3 @@
+interface:
+  display_name: "Maintenance Risk"
+  short_description: "Assess repository maintenance risk"

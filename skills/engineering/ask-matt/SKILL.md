@@ -50,6 +50,7 @@ A starting situation that generates work, then merges onto the main flow.
 Not feature work, just upkeep.
 
 - **`/improve-codebase-architecture`** runs whenever you have a spare moment to keep the codebase good for agents to operate in. It surfaces **deepening opportunities**; picking one _generates an idea_ you can take into the main flow at `/grill-with-docs`. It's the survey that finds the candidates; **`/codebase-design`** (below) is the bench you design the chosen one on.
+- **`/codebase-health`**: a beta, user-invoked audit that combines maintenance risk, test-suite health, knowledge hygiene, and feedback-loop health without changing the target repository. Start here when you need an evidence-backed health survey rather than an architectural redesign; it defaults to a bounded quick pass and makes unavailable analyzers visible.
 
 ## Vocabulary underneath
 

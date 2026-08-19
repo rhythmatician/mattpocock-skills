@@ -1,0 +1,3 @@
+interface:
+  display_name: "Knowledge Hygiene"
+  short_description: "Assess repository knowledge quality"

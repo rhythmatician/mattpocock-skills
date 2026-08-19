@@ -1,0 +1,5 @@
+interface:
+  display_name: "Codebase Health"
+  short_description: "Coordinate repository health diagnostics"
+policy:
+  allow_implicit_invocation: false

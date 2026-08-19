@@ -1,0 +1,3 @@
+interface:
+  display_name: "Test Suite Health"
+  short_description: "Assess reliability and test feedback"
