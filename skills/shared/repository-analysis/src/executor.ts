@@ -169,36 +169,40 @@ export class Executor {
       let stderrChunks: Buffer[] = [];
       let stdoutSize = 0;
       let stderrSize = 0;
-      let outputTruncated = false;
+        let stdoutTruncated = false;
+        let stderrTruncated = false;
 
-      try {
-        const child = spawn('sh', ['-c', command], {
-          cwd,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, ...options.env },
-        });
+        try {
+          const shell = process.platform === 'win32' ? 'cmd' : 'sh';
+          const args = process.platform === 'win32' ? ['/c', command] : ['-c', command];
 
-        // Handle stdout
-        child.stdout!.on('data', (chunk: Buffer) => {
-          stdoutSize += chunk.length;
-          if (stdoutSize <= maxOutputBytes) {
-            stdoutChunks.push(chunk);
-          } else if (!outputTruncated) {
-            outputTruncated = true;
-            stdoutChunks.push(Buffer.from('\n[OUTPUT TRUNCATED]'));
-          }
-        });
+          const child = spawn(shell, args, {
+            cwd,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, ...options.env },
+          });
 
-        // Handle stderr
-        child.stderr!.on('data', (chunk: Buffer) => {
-          stderrSize += chunk.length;
-          if (stderrSize <= maxOutputBytes) {
-            stderrChunks.push(chunk);
-          } else if (!outputTruncated) {
-            outputTruncated = true;
-            stderrChunks.push(Buffer.from('\n[OUTPUT TRUNCATED]'));
-          }
-        });
+          // Handle stdout
+          child.stdout!.on('data', (chunk: Buffer) => {
+            stdoutSize += chunk.length;
+            if (stdoutSize <= maxOutputBytes) {
+              stdoutChunks.push(chunk);
+            } else if (!stdoutTruncated) {
+              stdoutTruncated = true;
+              stdoutChunks.push(Buffer.from('\n[STDOUT TRUNCATED]'));
+            }
+          });
+
+          // Handle stderr
+          child.stderr!.on('data', (chunk: Buffer) => {
+            stderrSize += chunk.length;
+            if (stderrSize <= maxOutputBytes) {
+              stderrChunks.push(chunk);
+            } else if (!stderrTruncated) {
+              stderrTruncated = true;
+              stderrChunks.push(Buffer.from('\n[STDERR TRUNCATED]'));
+            }
+          });
 
         // Set timeout
         if (timeout > 0) {
@@ -233,7 +237,7 @@ export class Executor {
             stderr: Buffer.concat(stderrChunks).toString(),
             durationMs,
             timedOut,
-            completeOutput: !outputTruncated,
+            completeOutput: !stdoutTruncated && !stderrTruncated,
           });
         });
       } catch (error) {

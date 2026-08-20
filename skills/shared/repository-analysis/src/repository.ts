@@ -68,13 +68,15 @@ export class Repository {
       if (fs.existsSync(path.join(currentPath, 'package.json'))) {
         // But keep looking up for .git if we can find it
         let checkPath = currentPath;
-        for (let j = 0; j < 5; j++) {
+        let parentCheckDepth = 0;
+        while (parentCheckDepth < 20) {
           const parent = path.dirname(checkPath);
           if (parent === checkPath) break; // Reached filesystem root
           if (fs.existsSync(path.join(parent, '.git'))) {
             return parent;
           }
           checkPath = parent;
+          parentCheckDepth++;
         }
         return currentPath;
       }

@@ -101,9 +101,10 @@ export class HistoryAnalyzer {
     const maxCommits = config.maxCommits || 1000;
 
     try {
-      // Get commits with details in machine-readable format
+      // Use null-byte delimiters to handle multiline commit messages
+      // Format: sha%n subject%n author%n date%n%n (separated by null bytes)
       const gitLog = execSync(
-        `git log --oneline -${maxCommits} --format=%H%n%s%n%aN%n%aI%n%n --no-merges`,
+        `git log --format=%H%x00%s%x00%aN%x00%aI%x00 -${maxCommits} --no-merges`,
         {
           cwd: this.workdir,
           encoding: 'utf-8',
@@ -111,15 +112,16 @@ export class HistoryAnalyzer {
       );
 
       const commits: HistoryAnalysis['commits'] = [];
-      const lines = gitLog.split('\n');
+      const records = gitLog.split('\x00').filter((r) => r.trim());
 
-      for (let i = 0; i < lines.length; i += 5) {
-        if (i + 4 >= lines.length) break;
+      // Process records in groups of 4 (sha, subject, author, date)
+      for (let i = 0; i < records.length; i += 4) {
+        if (i + 3 >= records.length) break;
 
-        const sha = lines[i].trim();
-        const message = lines[i + 1].trim();
-        const author = lines[i + 2].trim();
-        const date = lines[i + 3].trim();
+        const sha = records[i].trim();
+        const message = records[i + 1].trim();
+        const author = records[i + 2].trim();
+        const date = records[i + 3].trim();
 
         if (!sha) continue;
 

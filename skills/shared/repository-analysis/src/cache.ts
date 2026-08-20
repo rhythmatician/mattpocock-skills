@@ -42,7 +42,7 @@ export class AnalysisCache {
   constructor(repositoryRoot: string) {
     // Use system temp + repo hash for deterministic cache location
     const repoHash = this.hashPath(repositoryRoot);
-    const tmpDir = process.env.TMPDIR || process.env.TEMP || '/tmp';
+    const tmpDir = os.tmpdir();
     this.cacheDir = path.join(tmpDir, `repository-analysis-cache-${repoHash}`);
 
     // Ensure cache directory exists
@@ -256,7 +256,7 @@ export class AnalysisCache {
  * ```
  */
 export function createAnalysisTempDir(label: string): string {
-  const osTemp = process.env.TMPDIR || process.env.TEMP || '/tmp';
+  const osTemp = os.tmpdir();
   const timestamp = Date.now();
   const dirName = `${label}-${timestamp}`;
   const fullPath = path.join(osTemp, dirName);

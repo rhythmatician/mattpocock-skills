@@ -79,7 +79,8 @@ export class CliDiscovery {
 
     // Try system PATH
     try {
-      const result = execSync(`which ${name}`, {
+      const cmd = process.platform === 'win32' ? `where ${name}` : `which ${name}`;
+      const result = execSync(cmd, {
         cwd: this.workdir,
         encoding: 'utf-8',
         stdio: 'pipe',
