@@ -38,7 +38,7 @@ Complete this step when every artifact class relevant to the audit has a declare
 
 Use the evidence surfaces available in the environment. Record what was searched and any unavailable surface.
 
-- If `graphify-out/graph.json` exists, call the Skill tool with `graphify` to query shared concepts, definitions, mappings, and relationships. Treat graph results as candidates with provenance, not findings. Build or update a graph only when the user explicitly requests it.
+- If `graphify-out/graph.json` exists and the model-invoked `graphify` skill is available, call the Skill tool with `graphify` to query shared concepts, definitions, mappings, and relationships. Treat graph results as candidates with provenance, not findings. Build or update a graph only when the user explicitly requests it.
 - Inventory durable docs, instructions, ADRs, plans, scratch artifacts, generated files, schemas, enums, registries, mappings, and tables. Flag orphan documents whose status, owner, audience, or inbound references are unclear.
 - Run exact searches for canonical terms, policy language, status words, named mappings, enum members, configuration keys, and repeated instructions. Search code and docs together.
 - Use semantic search when available to find independently worded definitions. Semantic similarity generates candidates only.
@@ -61,7 +61,7 @@ For each candidate, answer:
 6. What remains inference because the record is silent?
 7. Do the locations actually contradict, or do they merely overlap?
 
-Confirm **duplicate authority** only when at least two independently maintained locations are **empowered by the repository's authority model** to define the same current truth. "Looks current or binding" is not sufficient. Current-sounding legacy or unadmitted prose that lacks such empowerment is **authority-shaped debt** — classify it as such rather than as duplicate authority.
+Confirm **duplicate authority** only when at least two independently maintained locations are **empowered by the repository's authority model** to define the same current truth. "Looks current or binding" is not sufficient. Current-sounding legacy or unadmitted prose that lacks such empowerment is **authority-shaped debt**. Classify it as such rather than as duplicate authority.
 
 **Supersession is decided by proposition, not ancestry.** A current contract is not stale merely because a rule originated under a superseded ADR. Compare the actual proposition against the successor or current authority.
 

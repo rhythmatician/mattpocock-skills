@@ -1,0 +1,5 @@
+interface:
+  display_name: "Workflow Router"
+  short_description: "Route a cooperating workflow"
+policy:
+  allow_implicit_invocation: false

@@ -15,6 +15,7 @@ You invoke this by typing `/ask-matt`; the agent won't reach for it on its own.
 | Two skills that look interchangeable | The line between them, and it is usually one concrete test rather than a matter of taste. [grill-me](https://aihero.dev/skills-grill-me) or [grill-with-docs](https://aihero.dev/skills-grill-with-docs) turns on whether you are in a working directory; [grill-with-docs](https://aihero.dev/skills-grill-with-docs) or [wayfinder](https://aihero.dev/skills-wayfinder) turns on whether the effort fits one session |
 | Codebase upkeep | `/maintenance-risk` for measured hotspot ranking; [improve-codebase-architecture](https://aihero.dev/skills-improve-codebase-architecture) for a grounded survey of module secrets, leaking agreements, and deepening shapes; `/test-suite-health` for confidence in the safety net; `/knowledge-hygiene` for conflicting repository truth |
 | A long session and a decision about the [context](https://www.aihero.dev/ai-coding-dictionary/context) | The ordered tree over the five options at a phase boundary |
+| Several installed skills may collide or hand work off unsafely | [skill-ecosystem-auditor](https://aihero.dev/skills-skill-ecosystem-auditor), which audits activation, ownership, host visibility, and composition across the set |
 | A skill you have already picked | Nothing useful. Invoke that skill directly. |
 
 ## Prerequisites
@@ -30,7 +31,7 @@ The word the skill gives you to think with is **flow**: a path *through* the ski
 - **The main flow**, idea to ship. Grill, spec, tickets, implement, review, with two branches inside it: a prototype detour when a question needs runnable code to settle, and the spec-and-tickets split, which only earns its cost when the build spans more than one session.
 - **On-ramps**, for a situation that generates work and then merges onto the main flow: incoming bug reports, something broken, or an effort too foggy and too large to hold in one session.
 - **Codebase health**, periodic diagnostics with separate jobs: measure maintenance risk, inspect module shape, audit test confidence, or reconcile repository truth.
-- **Standalones**, off every flow, reached for on their own terms: the prototype, the questionnaire, the merge conflict you are already sitting in.
+- **Standalones**, off every flow, reached for on their own terms: the prototype, the questionnaire, the merge conflict you are already sitting in, or an audit of the installed skill ecosystem itself.
 - **A vocabulary layer underneath**, the two references the other skills pull in when the words rather than the process are the problem.
 
 ## The phase boundary
