@@ -425,6 +425,32 @@ test("cleanup proof rejects relative paths and directories", async () => {
   );
 });
 
+test("cleanup proof reports evidence that disappears during inspection", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
+  const input = plan(repositoryPath);
+
+  const result = await runFeedbackLoopPlan(input, {
+    statEvidencePath: () => {
+      throw new Error("artifact vanished");
+    },
+  });
+
+  assert.equal(result.cleanup.status, "partial");
+  assert.equal(result.status, "partial");
+  assert.deepEqual(result.cleanup.evidencePaths, []);
+  assert.equal(result.cleanup.unavailableEvidencePaths.length, 1);
+  assert.match(
+    result.cleanup.unavailableEvidencePaths[0]?.reason ?? "",
+    /could not be inspected.*artifact vanished/i,
+  );
+  assert.equal(
+    result.confidenceBoundaries.some((boundary) =>
+      /artifact vanished/i.test(boundary),
+    ),
+    true,
+  );
+});
+
 test("runs cleanup after a failed drive and preserves the failed stage", async () => {
   const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
   const cleanupMarker = join(repositoryPath, "cleanup-ran");

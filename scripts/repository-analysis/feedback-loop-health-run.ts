@@ -43,6 +43,11 @@ type Command = {
   executable: string;
 };
 
+type RunOptions = {
+  signal?: AbortSignal;
+  statEvidencePath?: (path: string) => { isFile: () => boolean };
+};
+
 type Stage = {
   agentWait: "blocked" | "concurrent" | "unknown";
   availability: Availability;
@@ -454,7 +459,10 @@ const emptyMilestones = (): FeedbackLoopHealthRun["scenarios"][number]["mileston
 const statusRank: Record<StageStatus, number> = { failed: 5, partial: 4, unavailable: 3, skipped: 2, passed: 1 };
 const LIFECYCLES: Lifecycle[] = ["launch", "doctor", "drive", "evidence", "cleanup"];
 
-export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: AbortSignal } = {}): Promise<FeedbackLoopHealthRun> => {
+export const runFeedbackLoopPlan = async (
+  input: unknown,
+  options: RunOptions = {},
+): Promise<FeedbackLoopHealthRun> => {
   const plan = parseFeedbackLoopPlan(input);
   const root = resolve(plan.repositoryPath);
   const failures: FeedbackLoopHealthRun["failures"] = [];
@@ -756,6 +764,7 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
     });
   const validEvidencePaths: string[] = [];
   const unavailableEvidencePaths: FeedbackLoopHealthRun["cleanup"]["unavailableEvidencePaths"] = [];
+  const statEvidencePath = options.statEvidencePath ?? statSync;
   if (plan.evidencePaths.length === 0) {
     unavailableEvidencePaths.push({
       path: "(none)",
@@ -774,10 +783,18 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
       reason = "Evidence path must be an absolute artifact file path";
     } else if (!existsSync(absolutePath)) {
       reason = "Evidence path does not exist after the scenario run";
-    } else if (!statSync(absolutePath).isFile()) {
-      reason = "Evidence path must be a file";
-    } else if (isPathInsideRepository(root, absolutePath)) {
-      reason = "Evidence path must be outside the target repository";
+    } else {
+      try {
+        if (!statEvidencePath(absolutePath).isFile()) {
+          reason = "Evidence path must be a file";
+        } else if (isPathInsideRepository(root, absolutePath)) {
+          reason = "Evidence path must be outside the target repository";
+        }
+      } catch (error) {
+        reason = `Evidence path could not be inspected: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+      }
     }
     if (reason) {
       unavailableEvidencePaths.push({ path: absolutePath, reason });
