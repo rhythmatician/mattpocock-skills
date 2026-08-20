@@ -6,7 +6,7 @@ The baseline comes before optimization. The skill measures the real path and pre
 
 ## When to reach for it
 
-Type `/feedback-loop-health`, or the agent reaches for it automatically when a task fits. Reach for it when:
+Type `/feedback-loop-health`, or the [agent](https://www.aihero.dev/ai-coding-dictionary/agent) reaches for it automatically when a task fits. Reach for it when:
 
 - edit, build, test, restart, or preview loops feel slow;
 - confidence arrives only in CI;

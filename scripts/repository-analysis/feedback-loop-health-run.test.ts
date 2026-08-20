@@ -29,6 +29,7 @@ const machineStage = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const plan = (repositoryPath: string) => ({
+  evidencePaths: [join(repositoryPath, "evidence", "scenario.json")],
   schemaVersion: 1,
   repositoryPath,
   scenarios: [
@@ -44,12 +45,26 @@ const plan = (repositoryPath: string) => ({
       },
       hitlRequired: true,
       id: "component-change",
+      lifecycleApplicability: {
+        cleanup: "required",
+        doctor: "required",
+        drive: "required",
+        evidence: "required",
+        launch: "required",
+      },
       stages: [
         machineStage(),
         machineStage({
           condition: "warm-incremental",
           id: "test",
           lifecycle: "drive",
+          finding: {
+            classification: "serial",
+            owner: "feedback-loop-health",
+            regressionRatchetOpportunity: "Add a budget around the focused test path",
+            smallestImprovement: "Run the focused test independently of the full build",
+            whyItMatters: "This stage blocks the first adequate confidence signal",
+          },
           signal: "automated-confidence",
         }),
         {
@@ -141,6 +156,97 @@ test("normalizes machine and manual latency, conditions, and unavailable stages"
   assert.equal(result.scenarios[0]?.milestones["hitl-setup"].manualDurationMs, 1_500);
   assert.equal(result.scenarios[0]?.milestones["hitl-verdict"].status, "unavailable");
   assert.equal(result.scenarios[0]?.stages.at(-1)?.lifecycle, "cleanup");
+  assert.equal(result.findings[0]?.classification, "serial");
+  assert.equal(result.findings[0]?.claimType, "interpretation");
+  assert.equal(result.findings[0]?.measurement.sampleCount, 2);
+  assert.equal(result.findings[0]?.provenance[0]?.kind, "executed-command");
+  assert.equal(result.findings[0]?.smallestImprovement, "Run the focused test independently of the full build");
+  assert.equal(result.unavailableStages.some(({ stageId }) => stageId === "visual-verdict"), true);
+  assert.equal(result.confidenceBoundaries.some((boundary) => /HITL verdict/i.test(boundary)), true);
+  assert.equal(result.cleanup.status, "complete");
+  assert.deepEqual(result.cleanup.evidencePaths, [join(repositoryPath, "evidence", "scenario.json")]);
+});
+
+test("a HITL scenario is partial when required feedback milestones are absent", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
+  const input = plan(repositoryPath);
+  input.scenarios[0]!.hitlRequired = true;
+  input.scenarios[0]!.lifecycleApplicability = {
+    cleanup: "not-required",
+    doctor: "not-required",
+    drive: "required",
+    evidence: "not-required",
+    launch: "not-required",
+  };
+  input.scenarios[0]!.stages = [
+    machineStage({
+      condition: "cold-clean",
+      id: "cold-test",
+      lifecycle: "drive",
+      repeatCount: 1,
+      signal: "automated-confidence",
+    }),
+    machineStage({
+      condition: "warm-incremental",
+      id: "warm-test",
+      lifecycle: "drive",
+      repeatCount: 1,
+      signal: "first-signal",
+    }),
+  ];
+
+  const result = await runFeedbackLoopPlan(input);
+
+  assert.equal(result.status, "partial");
+  assert.equal(result.scenarios[0]?.status, "partial");
+  assert.equal(result.unavailableStages.some(({ stageId }) => stageId === "human-observable-state"), true);
+  assert.equal(result.unavailableStages.some(({ stageId }) => stageId === "hitl-setup"), true);
+  assert.equal(result.unavailableStages.some(({ stageId }) => stageId === "hitl-verdict"), true);
+});
+
+test("reports required lifecycle stages that the plan did not provide", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
+  const input = plan(repositoryPath);
+  input.scenarios[0]!.hitlRequired = false;
+  input.scenarios[0]!.stages = input.scenarios[0]!.stages.filter(
+    ({ lifecycle }) => lifecycle !== "doctor",
+  );
+
+  const result = await runFeedbackLoopPlan(input);
+
+  assert.equal(result.scenarios[0]?.lifecycleReadiness.doctor.status, "unavailable");
+  assert.equal(result.scenarios[0]?.status, "partial");
+  assert.equal(result.unavailableStages.some(({ stageId }) => stageId === "lifecycle:doctor"), true);
+});
+
+test("reports a missing cold or warm comparison instead of completing silently", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
+  const input = plan(repositoryPath);
+  input.scenarios[0]!.hitlRequired = false;
+  input.scenarios[0]!.lifecycleApplicability = {
+    cleanup: "not-required",
+    doctor: "not-required",
+    drive: "required",
+    evidence: "not-required",
+    launch: "not-required",
+  };
+  input.scenarios[0]!.stages = [
+    machineStage({
+      condition: "warm-incremental",
+      id: "warm-only",
+      lifecycle: "drive",
+      repeatCount: 1,
+      signal: "first-signal",
+    }),
+  ];
+
+  const result = await runFeedbackLoopPlan(input);
+
+  assert.equal(result.scenarios[0]?.comparison.status, "partial");
+  assert.deepEqual(result.scenarios[0]?.comparison.unavailableConditions, ["cold-clean"]);
+  assert.equal(result.scenarios[0]?.status, "partial");
+  assert.equal(result.unavailableStages.some(({ stageId }) => stageId === "condition:cold-clean"), true);
+  assert.deepEqual(result.findings, []);
 });
 
 test("runs cleanup after a failed drive and preserves the failed stage", async () => {
@@ -169,6 +275,14 @@ test("runs cleanup after a failed drive and preserves the failed stage", async (
       signal: "human-observable-state",
     }),
   ];
+  input.scenarios[0]!.hitlRequired = false;
+  input.scenarios[0]!.lifecycleApplicability = {
+    cleanup: "required",
+    doctor: "not-required",
+    drive: "required",
+    evidence: "not-required",
+    launch: "required",
+  };
 
   const result = await runFeedbackLoopPlan(input);
 

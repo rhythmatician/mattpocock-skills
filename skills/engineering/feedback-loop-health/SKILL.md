@@ -42,13 +42,14 @@ Choose the smallest scenarios that represent the user's actual wait. Include a n
 
 - the five grounding facts from the survey;
 - whether it is the baseline;
+- which Launch / Doctor / Drive / Evidence / Cleanup stages are required or not required;
 - cold/clean and warm/incremental conditions, without clearing shared caches;
 - local or CI environment and whether each wait blocks the agent or can run concurrently;
 - which command produces first signal and which commands earn adequate confidence;
 - whether HITL is required, what makes behavior observable, and the manual setup burden;
 - stage availability and the concrete reason for every partial or unavailable stage.
 
-Write the runner plan using [the report contract](references/report-contract.md). The first scenario is the baseline. Run dynamic commands only through the shared runner:
+Write the runner plan using [the report contract](references/report-contract.md). The first scenario is the baseline. Every scenario declares lifecycle applicability, HITL applicability, and evidence paths. Run dynamic commands only through the shared runner:
 
 ```text
 <skills-root>/scripts/repository-analysis/feedback-loop-health-run.ts
@@ -56,7 +57,7 @@ Write the runner plan using [the report contract](references/report-contract.md)
   --output <temp-directory>/results.json
 ```
 
-The runner accepts executable and argument arrays, never shell strings. It records machine and manual latency independently, compares cold/clean with warm/incremental evidence, retains partial stages, and runs declared cleanup after failed drives. It rejects destructive cache-clearing commands.
+The runner accepts executable and argument arrays, never shell strings. It records machine and manual latency independently, compares cold/clean with warm/incremental evidence, retains partial stages, and runs declared cleanup after failed drives. Missing required lifecycle, HITL, cold, or warm evidence makes the normalized result partial. The runner rejects destructive cache-clearing commands.
 
 ## 3. Drive the real path
 
@@ -91,7 +92,7 @@ Record the opportunity even when it is not implemented during this audit. Keep g
 
 ## 6. Report and hand off
 
-Emit the normalized JSON contract before the human summary. Report a few ranked bottlenecks, each with measured evidence, affected milestone, reason it dominates, classification, smallest plausible improvement, regression-ratchet opportunity, and owner.
+After the baseline, annotate only measured bottleneck stages with a `finding` block from the report contract, then run the same frozen plan again. The runner emits the normalized diagnostic JSON before the human summary: findings, unavailable stages, confidence boundaries, and cleanup evidence. Each finding carries measured evidence and provenance, affected milestone, reason it dominates, classification, smallest plausible improvement, regression-ratchet opportunity, and owner. The recommendation remains labelled as interpretation rather than measured fact.
 
 Hand off by owner:
 

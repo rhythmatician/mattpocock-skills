@@ -17,6 +17,24 @@ type Signal =
   | "hitl-verdict"
   | "human-observable-state";
 type Availability = "available" | "partial" | "unavailable";
+type LifecycleApplicability = "not-required" | "required";
+type FindingClassification =
+  | "local-ci-divergence"
+  | "manual-ceremony"
+  | "necessary"
+  | "overbroad"
+  | "redundant"
+  | "serial"
+  | "uncached"
+  | "unstable";
+type FindingOwner =
+  | "codebase-design"
+  | "feedback-loop-health"
+  | "hillclimb"
+  | "improve-codebase-architecture"
+  | "maintenance-risk"
+  | "tdd"
+  | "test-suite-health";
 
 type Command = {
   args: string[];
@@ -31,6 +49,13 @@ type Stage = {
   command?: Command;
   condition: Condition;
   environment: "ci" | "local" | "other";
+  finding?: {
+    classification: FindingClassification;
+    owner: FindingOwner;
+    regressionRatchetOpportunity: string;
+    smallestImprovement: string;
+    whyItMatters: string;
+  };
   id: string;
   latency: Latency;
   lifecycle: Lifecycle;
@@ -51,11 +76,13 @@ type Scenario = {
   grounding: Record<"drive" | "isolate" | "observe" | "run" | "surface", string>;
   hitlRequired: boolean;
   id: string;
+  lifecycleApplicability: Record<Lifecycle, LifecycleApplicability>;
   regressionRatchetOpportunities?: string[];
   stages: Stage[];
 };
 
 export type FeedbackLoopPlan = {
+  evidencePaths: string[];
   repositoryPath: string;
   scenarios: Scenario[];
   schemaVersion: 1;
@@ -89,8 +116,46 @@ type StageResult = {
 };
 
 export type FeedbackLoopHealthRun = {
+  cleanup: {
+    evidencePaths: string[];
+    status: "complete" | "partial";
+  };
+  confidenceBoundaries: string[];
   diagnostic: "feedback-loop-health";
   failures: Array<{ capability: "repository-state"; message: string }>;
+  findings: Array<{
+    claimType: "interpretation";
+    classification: FindingClassification;
+    id: string;
+    measurement: {
+      agentIdleMs: number;
+      condition: Condition;
+      environment: Stage["environment"];
+      machineMs: number;
+      manualMs: number;
+      sampleCount: number;
+    };
+    owner: FindingOwner;
+    provenance: Array<
+      | ({ kind: "executed-command" } & Command & {
+          repeatCount: number;
+          timeoutMs: number;
+        })
+      | {
+          evidence: string;
+          kind: "human-observation";
+          verdict?: "accepted" | "rejected" | "inconclusive";
+        }
+    >;
+    rank: number;
+    reason: string;
+    regressionRatchetOpportunity: string;
+    scenarioId: string;
+    signal: Signal;
+    smallestImprovement: string;
+    stage: Lifecycle;
+    stageId: string;
+  }>;
   generatedAt: string;
   repository: { dirty: boolean; head: string; root: string; stateId: string };
   scenarios: Array<{
@@ -101,12 +166,24 @@ export type FeedbackLoopHealthRun = {
       stageId: string;
     }>;
     conditions: Record<Condition, { machineMs: number; manualMs: number; sampleCount: number }>;
+    comparison: {
+      status: "complete" | "partial";
+      unavailableConditions: Condition[];
+    };
     description: string;
     grounding: Scenario["grounding"];
     hitlRequired: boolean;
     id: string;
     environments: Record<Stage["environment"], { machineMs: number; manualMs: number; sampleCount: number }>;
     latency: { agentIdleMs: number; machineMs: number; manualMs: number; totalMs: number };
+    lifecycleReadiness: Record<
+      Lifecycle,
+      {
+        applicability: LifecycleApplicability;
+        stageIds: string[];
+        status: "complete" | "not-required" | "partial" | "unavailable";
+      }
+    >;
     milestones: Record<Signal, {
       machineDurationMs: number;
       manualDurationMs: number;
@@ -118,6 +195,11 @@ export type FeedbackLoopHealthRun = {
   }>;
   schemaVersion: 1;
   status: "complete" | "partial";
+  unavailableStages: Array<{
+    reason: string;
+    scenarioId: string;
+    stageId: string;
+  }>;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -160,6 +242,33 @@ const parseStage = (value: unknown, path: string): Stage => {
     lifecycle: oneOf(value.lifecycle, ["launch", "doctor", "drive", "evidence", "cleanup"] as const, `${path}.lifecycle`),
     signal: oneOf(value.signal, ["first-signal", "automated-confidence", "human-observable-state", "hitl-setup", "hitl-verdict"] as const, `${path}.signal`),
   };
+  if (value.finding !== undefined) {
+    if (!isRecord(value.finding)) throw new Error(`${path}.finding must be an object`);
+    stage.finding = {
+      classification: oneOf(
+        value.finding.classification,
+        ["necessary", "redundant", "unstable", "overbroad", "serial", "uncached", "local-ci-divergence", "manual-ceremony"] as const,
+        `${path}.finding.classification`,
+      ),
+      owner: oneOf(
+        value.finding.owner,
+        ["feedback-loop-health", "test-suite-health", "maintenance-risk", "tdd", "codebase-design", "improve-codebase-architecture", "hillclimb"] as const,
+        `${path}.finding.owner`,
+      ),
+      regressionRatchetOpportunity: requireString(
+        value.finding.regressionRatchetOpportunity,
+        `${path}.finding.regressionRatchetOpportunity`,
+      ),
+      smallestImprovement: requireString(
+        value.finding.smallestImprovement,
+        `${path}.finding.smallestImprovement`,
+      ),
+      whyItMatters: requireString(
+        value.finding.whyItMatters,
+        `${path}.finding.whyItMatters`,
+      ),
+    };
+  }
   if (availability !== "available") {
     stage.reason = requireString(value.reason, `${path}.reason`);
     return stage;
@@ -201,6 +310,11 @@ const parseStage = (value: unknown, path: string): Stage => {
 export const parseFeedbackLoopPlan = (value: unknown): FeedbackLoopPlan => {
   if (!isRecord(value) || value.schemaVersion !== 1) throw new Error("Feedback-loop plan schemaVersion must be 1");
   const repositoryPath = requireString(value.repositoryPath, "repositoryPath");
+  const evidencePaths = value.evidencePaths === undefined
+    ? []
+    : Array.isArray(value.evidencePaths)
+      ? value.evidencePaths.map((entry, index) => requireString(entry, `evidencePaths[${index}]`))
+      : (() => { throw new Error("evidencePaths must be an array of paths"); })();
   if (!Array.isArray(value.scenarios) || value.scenarios.length === 0) throw new Error("Feedback-loop plan requires at least one scenario");
   const scenarios = value.scenarios.map((rawScenario, scenarioIndex): Scenario => {
     const path = `scenarios[${scenarioIndex}]`;
@@ -209,6 +323,9 @@ export const parseFeedbackLoopPlan = (value: unknown): FeedbackLoopPlan => {
     }
     if (typeof rawScenario.baseline !== "boolean") throw new Error(`${path}.baseline must be boolean`);
     if (typeof rawScenario.hitlRequired !== "boolean") throw new Error(`${path}.hitlRequired must be boolean`);
+    if (!isRecord(rawScenario.lifecycleApplicability)) {
+      throw new Error(`${path}.lifecycleApplicability must declare every lifecycle stage`);
+    }
     const stages = rawScenario.stages.map((stage, stageIndex) => parseStage(stage, `${path}.stages[${stageIndex}]`));
     const cleanupIndex = stages.findIndex(({ lifecycle }) => lifecycle === "cleanup");
     if (cleanupIndex !== -1 && stages.slice(cleanupIndex + 1).some(({ lifecycle }) => lifecycle !== "cleanup")) {
@@ -226,6 +343,13 @@ export const parseFeedbackLoopPlan = (value: unknown): FeedbackLoopPlan => {
       },
       id: requireString(rawScenario.id, `${path}.id`),
       hitlRequired: rawScenario.hitlRequired,
+      lifecycleApplicability: {
+        cleanup: oneOf(rawScenario.lifecycleApplicability.cleanup, ["required", "not-required"] as const, `${path}.lifecycleApplicability.cleanup`),
+        doctor: oneOf(rawScenario.lifecycleApplicability.doctor, ["required", "not-required"] as const, `${path}.lifecycleApplicability.doctor`),
+        drive: oneOf(rawScenario.lifecycleApplicability.drive, ["required", "not-required"] as const, `${path}.lifecycleApplicability.drive`),
+        evidence: oneOf(rawScenario.lifecycleApplicability.evidence, ["required", "not-required"] as const, `${path}.lifecycleApplicability.evidence`),
+        launch: oneOf(rawScenario.lifecycleApplicability.launch, ["required", "not-required"] as const, `${path}.lifecycleApplicability.launch`),
+      },
       regressionRatchetOpportunities: Array.isArray(rawScenario.regressionRatchetOpportunities)
         ? rawScenario.regressionRatchetOpportunities.map((entry, index) => requireString(entry, `${path}.regressionRatchetOpportunities[${index}]`))
         : [],
@@ -233,7 +357,7 @@ export const parseFeedbackLoopPlan = (value: unknown): FeedbackLoopPlan => {
     };
   });
   if (!scenarios[0]?.baseline) throw new Error("The first scenario must establish a baseline before comparisons or optimization attempts");
-  return { repositoryPath, scenarios, schemaVersion: 1 };
+  return { evidencePaths, repositoryPath, scenarios, schemaVersion: 1 };
 };
 
 const executeStage = async (stage: Stage, repositoryPath: string, signal?: AbortSignal): Promise<StageResult> => {
@@ -315,6 +439,7 @@ const emptyMilestones = (): FeedbackLoopHealthRun["scenarios"][number]["mileston
 });
 
 const statusRank: Record<StageStatus, number> = { failed: 5, partial: 4, unavailable: 3, skipped: 2, passed: 1 };
+const LIFECYCLES: Lifecycle[] = ["launch", "doctor", "drive", "evidence", "cleanup"];
 
 export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: AbortSignal } = {}): Promise<FeedbackLoopHealthRun> => {
   const plan = parseFeedbackLoopPlan(input);
@@ -350,6 +475,15 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
     });
   }
   const scenarios: FeedbackLoopHealthRun["scenarios"] = [];
+  const findings: FeedbackLoopHealthRun["findings"] = [];
+  const unavailableStages: FeedbackLoopHealthRun["unavailableStages"] = [];
+  const unavailableKeys = new Set<string>();
+  const addUnavailable = (scenarioId: string, stageId: string, reason: string) => {
+    const key = `${scenarioId}\u0000${stageId}`;
+    if (unavailableKeys.has(key)) return;
+    unavailableKeys.add(key);
+    unavailableStages.push({ reason, scenarioId, stageId });
+  };
   for (const scenario of plan.scenarios) {
     const stageResults: StageResult[] = [];
     let failed = false;
@@ -386,11 +520,11 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
       const condition = conditions[result.condition];
       condition.machineMs += result.machineDurationMs;
       condition.manualMs += result.manualDurationMs;
-      condition.sampleCount += result.runs.length + (result.manualDurationMs > 0 ? 1 : 0);
+      condition.sampleCount += result.runs.length + (result.provenance.manual ? 1 : 0);
       const environment = environments[result.environment];
       environment.machineMs += result.machineDurationMs;
       environment.manualMs += result.manualDurationMs;
-      environment.sampleCount += result.runs.length + (result.manualDurationMs > 0 ? 1 : 0);
+      environment.sampleCount += result.runs.length + (result.provenance.manual ? 1 : 0);
       const milestone = milestones[result.signal];
       milestone.machineDurationMs += result.machineDurationMs;
       milestone.manualDurationMs += result.manualDurationMs;
@@ -412,7 +546,127 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
         .reduce((total, stage) => total + stage.machineDurationMs + stage.manualDurationMs, 0)
         .toFixed(3),
     );
-    const incomplete = stageResults.some(({ status }) => status !== "passed");
+    const lifecycleReadiness = Object.fromEntries(
+      LIFECYCLES.map((lifecycle) => {
+        const applicability = scenario.lifecycleApplicability[lifecycle];
+        const lifecycleStages = stageResults.filter((stage) => stage.lifecycle === lifecycle);
+        const status = applicability === "not-required"
+          ? "not-required"
+          : lifecycleStages.length === 0
+            ? "unavailable"
+            : lifecycleStages.every((stage) => stage.status === "passed")
+              ? "complete"
+              : "partial";
+        if (status === "unavailable") {
+          addUnavailable(
+            scenario.id,
+            `lifecycle:${lifecycle}`,
+            `Required ${lifecycle} lifecycle stage was not provided`,
+          );
+        }
+        return [
+          lifecycle,
+          {
+            applicability,
+            stageIds: lifecycleStages.map(({ id }) => id),
+            status,
+          },
+        ];
+      }),
+    ) as FeedbackLoopHealthRun["scenarios"][number]["lifecycleReadiness"];
+    const unavailableConditions = (Object.entries(conditions) as Array<
+      [Condition, (typeof conditions)[Condition]]
+    >)
+      .filter(([, measurement]) => measurement.sampleCount === 0)
+      .map(([condition]) => condition);
+    const comparison = {
+      status: unavailableConditions.length === 0 ? "complete" as const : "partial" as const,
+      unavailableConditions,
+    };
+
+    for (const result of stageResults) {
+      if (result.status !== "passed") {
+        addUnavailable(
+          scenario.id,
+          result.id,
+          result.reason ??
+            result.runs.find(({ status }) => status === "failed")?.stderr ??
+            `Stage ended with status ${result.status}`,
+        );
+      }
+      const source = scenario.stages.find(({ id }) => id === result.id);
+      if (!source?.finding || result.status !== "passed") continue;
+      const provenance: FeedbackLoopHealthRun["findings"][number]["provenance"] = [];
+      if (result.provenance.command) {
+        provenance.push({ kind: "executed-command", ...result.provenance.command });
+      }
+      if (result.provenance.manual) {
+        provenance.push({ kind: "human-observation", ...result.provenance.manual });
+      }
+      findings.push({
+        claimType: "interpretation",
+        classification: source.finding.classification,
+        id: `${scenario.id}:${result.id}`,
+        measurement: {
+          agentIdleMs:
+            result.agentWait === "blocked"
+              ? Number((result.machineDurationMs + result.manualDurationMs).toFixed(3))
+              : 0,
+          condition: result.condition,
+          environment: result.environment,
+          machineMs: result.machineDurationMs,
+          manualMs: result.manualDurationMs,
+          sampleCount:
+            result.runs.length + (result.provenance.manual ? 1 : 0),
+        },
+        owner: source.finding.owner,
+        provenance,
+        rank: 0,
+        reason: source.finding.whyItMatters,
+        regressionRatchetOpportunity:
+          source.finding.regressionRatchetOpportunity,
+        scenarioId: scenario.id,
+        signal: result.signal,
+        smallestImprovement: source.finding.smallestImprovement,
+        stage: result.lifecycle,
+        stageId: result.id,
+      });
+    }
+
+    for (const condition of unavailableConditions) {
+      addUnavailable(
+        scenario.id,
+        `condition:${condition}`,
+        `No successful ${condition} sample was recorded`,
+      );
+    }
+    if (scenario.hitlRequired) {
+      for (const signal of [
+        "human-observable-state",
+        "hitl-setup",
+        "hitl-verdict",
+      ] as const) {
+        if (milestones[signal].status === "passed") continue;
+        addUnavailable(
+          scenario.id,
+          signal,
+          `Required ${signal.replaceAll("-", " ")} feedback is ${milestones[signal].status}`,
+        );
+      }
+    }
+    const lifecycleIncomplete = Object.values(lifecycleReadiness).some(
+      ({ status }) => status === "partial" || status === "unavailable",
+    );
+    const hitlIncomplete = scenario.hitlRequired && [
+      milestones["human-observable-state"],
+      milestones["hitl-setup"],
+      milestones["hitl-verdict"],
+    ].some(({ status }) => status !== "passed");
+    const incomplete =
+      stageResults.some(({ status }) => status !== "passed") ||
+      lifecycleIncomplete ||
+      hitlIncomplete ||
+      comparison.status === "partial";
     scenarios.push({
       baseline: scenario.baseline,
       bottlenecks: measuredStages
@@ -422,21 +676,53 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
         .sort((left, right) => right.durationMs - left.durationMs)
         .slice(0, 3),
       conditions,
+      comparison,
       description: scenario.description,
       environments,
       grounding: scenario.grounding,
       hitlRequired: scenario.hitlRequired,
       id: scenario.id,
       latency: { agentIdleMs, machineMs, manualMs, totalMs: Number((machineMs + manualMs).toFixed(3)) },
+      lifecycleReadiness,
       milestones,
       regressionRatchetOpportunities: scenario.regressionRatchetOpportunities ?? [],
       stages: stageResults,
       status: incomplete ? "partial" : "complete",
     });
   }
+  findings
+    .sort(
+      (left, right) =>
+        right.measurement.machineMs + right.measurement.manualMs -
+          (left.measurement.machineMs + left.measurement.manualMs) ||
+        left.id.localeCompare(right.id),
+    )
+    .forEach((finding, index) => {
+      finding.rank = index + 1;
+    });
+  const cleanupStatus = scenarios.every(({ lifecycleReadiness }) => {
+    const status = lifecycleReadiness.cleanup.status;
+    return status === "complete" || status === "not-required";
+  })
+    ? "complete"
+    : "partial";
   return {
+    cleanup: {
+      evidencePaths: plan.evidencePaths,
+      status: cleanupStatus,
+    },
+    confidenceBoundaries: [
+      ...failures.map(
+        ({ capability, message }) => `${capability}: ${message}`,
+      ),
+      ...unavailableStages.map(
+        ({ reason, scenarioId, stageId }) =>
+          `${scenarioId}/${stageId}: ${reason}`,
+      ),
+    ],
     diagnostic: "feedback-loop-health",
     failures,
+    findings,
     generatedAt: new Date().toISOString(),
     repository,
     scenarios,
@@ -445,6 +731,7 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
       failures.length === 0 && scenarios.every(({ status }) => status === "complete")
         ? "complete"
         : "partial",
+    unavailableStages,
   };
 };
 

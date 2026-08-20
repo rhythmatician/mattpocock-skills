@@ -8,12 +8,20 @@ The runner accepts one JSON object. The first scenario must be a baseline.
 {
   "schemaVersion": 1,
   "repositoryPath": "/absolute/repository/path",
+  "evidencePaths": ["/absolute/temp/path/scenario.json"],
   "scenarios": [
     {
       "id": "representative-change",
       "description": "Edit behavior and obtain a trustworthy verdict",
       "baseline": true,
       "hitlRequired": true,
+      "lifecycleApplicability": {
+        "launch": "required",
+        "doctor": "required",
+        "drive": "required",
+        "evidence": "required",
+        "cleanup": "required"
+      },
       "grounding": {
         "surface": "the user or reviewer surface",
         "run": "the repository-owned startup path",
@@ -37,7 +45,14 @@ The runner accepts one JSON object. The first scenario must be a baseline.
             "args": ["test", "--", "changed.test.ts"]
           },
           "repeatCount": 5,
-          "timeoutMs": 30000
+          "timeoutMs": 30000,
+          "finding": {
+            "classification": "serial",
+            "whyItMatters": "This stage blocks adequate confidence",
+            "smallestImprovement": "Run the focused check independently",
+            "regressionRatchetOpportunity": "Add a duration budget",
+            "owner": "feedback-loop-health"
+          }
         },
         {
           "id": "reviewer-setup",
@@ -66,11 +81,15 @@ The runner accepts one JSON object. The first scenario must be a baseline.
 }
 ```
 
-Allowed lifecycle values are `launch`, `doctor`, `drive`, `evidence`, and `cleanup`. Allowed signal values are `first-signal`, `automated-confidence`, `human-observable-state`, `hitl-setup`, and `hitl-verdict`. `environment` distinguishes `local`, `ci`, and other evidence. `agentWait` records whether a stage blocks the agent, can run concurrently, or remains unknown.
+Allowed lifecycle values are `launch`, `doctor`, `drive`, `evidence`, and `cleanup`. Every scenario maps each one to `required` or `not-required`; a required stage with no successful result is an explicit confidence boundary. Allowed signal values are `first-signal`, `automated-confidence`, `human-observable-state`, `hitl-setup`, and `hitl-verdict`. `environment` distinguishes `local`, `ci`, and other evidence. `agentWait` records whether a stage blocks the agent, can run concurrently, or remains unknown.
 
 Every stage declares `available`, `partial`, or `unavailable`. Partial and unavailable stages carry a reason. Available machine stages carry an executable, argument array, repeat count, and timeout. Available manual stages carry observed duration and evidence, with an optional `accepted`, `rejected`, or `inconclusive` verdict.
 
 `cold-clean` records a naturally cold or repository-defined clean run. It does not authorize deleting caches. `warm-incremental` records the normal loop after a representative edit.
+
+The example is intentionally partial: it omits cold evidence and several required lifecycle stages, and its HITL verdict is unavailable. A complete result needs at least one successful cold/clean and warm/incremental sample, every required lifecycle stage, and, when `hitlRequired` is true, successful human-observable-state, HITL setup, and HITL verdict milestones.
+
+Add `finding` only after a baseline identifies a measured bottleneck. Its reason, classification, smallest improvement, regression ratchet, and owner are interpretations supplied by the investigation. The runner attaches measured timing and provenance and labels the resulting claim `interpretation`; it never fabricates a recommendation from duration alone.
 
 ## Normalized result
 
@@ -117,7 +136,7 @@ Before the human summary, emit one JSON object that keeps interpretation separat
         "agentIdleMs": 12000,
         "sampleCount": 1
       },
-      "whyItMatters": "The reviewer waits here before the changed behavior is observable",
+      "reason": "The reviewer waits here before the changed behavior is observable",
       "smallestImprovement": "Seed and deep-link the review scenario",
       "regressionRatchetOpportunity": "none | deterministic oracle to add",
       "owner": "feedback-loop-health | test-suite-health | maintenance-risk | tdd | codebase-design | improve-codebase-architecture | hillclimb",
