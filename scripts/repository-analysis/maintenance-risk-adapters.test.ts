@@ -328,3 +328,35 @@ test("propagates cancellation from the Omen adapter", async () => {
       error instanceof ProcessExecutionError && error.kind === "cancelled",
   );
 });
+
+test("analyzes large Graphify cycles without recursive traversal", async () => {
+  const repositoryPath = createRepository();
+  const graphDirectory = join(repositoryPath, "graphify-out");
+  mkdirSync(graphDirectory);
+  const nodeCount = 12_000;
+  const nodes = Array.from({ length: nodeCount }, (_, index) => ({
+    id: `node-${index}`,
+    source_file: `src/file-${index}.ts`,
+  }));
+  const links = Array.from({ length: nodeCount }, (_, index) => ({
+    confidence: "EXTRACTED",
+    relation: "imports",
+    source: `node-${index}`,
+    target: `node-${(index + 1) % nodeCount}`,
+  }));
+  writeFileSync(
+    join(graphDirectory, "graph.json"),
+    JSON.stringify({ links, nodes }),
+  );
+
+  const result = await surveyMaintenanceRisk({
+    analyzerAdapters: [completeAnalyzerAdapter],
+    depth: "quick",
+    repositoryPath,
+  });
+
+  assert.equal(
+    result.evidence.dependencyPathology.items[0]?.cycles[0]?.length,
+    nodeCount,
+  );
+});

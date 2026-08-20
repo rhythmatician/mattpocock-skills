@@ -531,49 +531,62 @@ const stronglyConnectedComponents = (
   paths: string[],
   adjacency: Map<string, Set<string>>,
 ) => {
-  const components: string[][] = [];
-  const indices = new Map<string, number>();
-  const lowLinks = new Map<string, number>();
-  const onStack = new Set<string>();
-  const stack: string[] = [];
-  let nextIndex = 0;
+  const orderedPaths = [...paths].sort();
+  const reverseAdjacency = new Map<string, Set<string>>();
+  for (const [source, targets] of adjacency) {
+    for (const target of targets) {
+      const sources = reverseAdjacency.get(target) ?? new Set<string>();
+      sources.add(source);
+      reverseAdjacency.set(target, sources);
+    }
+  }
 
-  const visit = (path: string) => {
-    indices.set(path, nextIndex);
-    lowLinks.set(path, nextIndex);
-    nextIndex += 1;
-    stack.push(path);
-    onStack.add(path);
-
-    for (const target of adjacency.get(path) ?? []) {
-      if (!indices.has(target)) {
-        visit(target);
-        lowLinks.set(
-          path,
-          Math.min(lowLinks.get(path) ?? 0, lowLinks.get(target) ?? 0),
-        );
-      } else if (onStack.has(target)) {
-        lowLinks.set(
-          path,
-          Math.min(lowLinks.get(path) ?? 0, indices.get(target) ?? 0),
-        );
+  const finishOrder: string[] = [];
+  const visited = new Set<string>();
+  for (const start of orderedPaths) {
+    if (visited.has(start)) continue;
+    const stack: Array<{ expanded: boolean; path: string }> = [
+      { expanded: false, path: start },
+    ];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) break;
+      if (current.expanded) {
+        finishOrder.push(current.path);
+        continue;
+      }
+      if (visited.has(current.path)) continue;
+      visited.add(current.path);
+      stack.push({ expanded: true, path: current.path });
+      const targets = [...(adjacency.get(current.path) ?? [])].sort().reverse();
+      for (const target of targets) {
+        if (!visited.has(target)) {
+          stack.push({ expanded: false, path: target });
+        }
       }
     }
+  }
 
-    if (lowLinks.get(path) !== indices.get(path)) return;
+  const components: string[][] = [];
+  visited.clear();
+  for (const start of finishOrder.reverse()) {
+    if (visited.has(start)) continue;
     const component: string[] = [];
+    const stack = [start];
+    visited.add(start);
     while (stack.length > 0) {
       const member = stack.pop();
       if (!member) break;
-      onStack.delete(member);
       component.push(member);
-      if (member === path) break;
+      const sources = [...(reverseAdjacency.get(member) ?? [])].sort().reverse();
+      for (const source of sources) {
+        if (!visited.has(source)) {
+          visited.add(source);
+          stack.push(source);
+        }
+      }
     }
     if (component.length > 1) components.push(component.sort());
-  };
-
-  for (const path of [...paths].sort()) {
-    if (!indices.has(path)) visit(path);
   }
   return components.sort((left, right) =>
     left.join("\x00").localeCompare(right.join("\x00")),
