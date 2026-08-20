@@ -25,6 +25,7 @@
     "./skills/engineering/domain-architect-interrogator",
     "./skills/engineering/triage",
     "./skills/engineering/improve-codebase-architecture",
+    "./skills/engineering/maintenance-risk",
     "./skills/engineering/setup-matt-pocock-skills",
     "./skills/engineering/tdd",
     "./skills/engineering/test-suite-health",
