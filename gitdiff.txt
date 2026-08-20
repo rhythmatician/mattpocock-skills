@@ -1,0 +1,215 @@
+diff --git a/.changeset/domain-architect-interrogator.md b/.changeset/domain-architect-interrogator.md
+new file mode 100644
+index 0000000..e6f419a
+--- /dev/null
++++ b/.changeset/domain-architect-interrogator.md
+@@ -0,0 +1,5 @@
++---
++"mattpocock-skills": minor
++---
++
++Add `domain-architect-interrogator`: a user-invoked requirements-elicitation session where the user plays domain expert and the agent plays senior architect. It holds the conversation strictly at the domain level (sea-level goals, ubiquitous language, context-free boundary stress tests, exception interrogation) and redirects implementation mechanics on sight, closing the "Scripter Trap" where a deeply technical domain expert pulls the model into code talk. Ends with a black-box behavioral contract that feeds `/to-spec`.
+diff --git a/.claude-plugin/plugin.json b/.claude-plugin/plugin.json
+index 0a2e308..c4ae866 100644
+--- a/.claude-plugin/plugin.json
++++ b/.claude-plugin/plugin.json
+@@ -22,6 +22,7 @@
+     "./skills/engineering/ask-matt",
+     "./skills/engineering/diagnosing-bugs",
+     "./skills/engineering/grill-with-docs",
++    "./skills/engineering/domain-architect-interrogator",
+     "./skills/engineering/triage",
+     "./skills/engineering/improve-codebase-architecture",
+     "./skills/engineering/setup-matt-pocock-skills",
+@@ -45,4 +46,4 @@
+     "./skills/productivity/wait-what",
+     "./skills/productivity/writing-for-agents"
+   ]
+-}
++}
+\ No newline at end of file
+diff --git a/README.md b/README.md
+index d72d6d1..18b76e2 100644
+--- a/README.md
++++ b/README.md
+@@ -199,6 +199,7 @@ Skills I use daily for code work.
+ 
+ - **[ask-matt](./skills/engineering/ask-matt/SKILL.md)**: Ask which skill or flow fits your situation. A router over the user-invoked skills in this repo.
+ - **[grill-with-docs](./skills/engineering/grill-with-docs/SKILL.md)**: Grilling session that also builds your project's domain model, sharpening terminology and updating `CONTEXT.md` and ADRs inline.
++- **[domain-architect-interrogator](./skills/engineering/domain-architect-interrogator/SKILL.md)**: Interrogate the domain expert (you) about a product design as a senior architect: sea-level goals, ubiquitous language, boundary stress tests, with implementation mechanics firmly black-boxed.
+ - **[triage](./skills/engineering/triage/SKILL.md)**: Move issues through a state machine of triage roles.
+ - **[improve-codebase-architecture](./skills/engineering/improve-codebase-architecture/SKILL.md)**: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
+ - **[setup-matt-pocock-skills](./skills/engineering/setup-matt-pocock-skills/SKILL.md)**: Configure this repo for the engineering skills (issue tracker, triage labels, domain doc layout). Run once per repo before using the other engineering skills.
+diff --git a/docs/engineering/domain-architect-interrogator.md b/docs/engineering/domain-architect-interrogator.md
+new file mode 100644
+index 0000000..9a9d9eb
+--- /dev/null
++++ b/docs/engineering/domain-architect-interrogator.md
+@@ -0,0 +1,33 @@
++## What it does
++
++`domain-architect-interrogator` runs a requirements-elicitation session where you play the **Domain Expert** and the [agent](https://www.aihero.dev/ai-coding-dictionary/agent) plays the **Senior Architect**. It walks a fixed loop: frame one sea-level goal, walk the main flow as player tasks, stress the operational boundaries with context-free questions, interrogate every exception, then play the design back as a black-box behavioral contract for you to confirm.
++
++The defining constraint: the conversation is held strictly at the domain level. Implementation mechanics, infrastructure, and technical debt are redirected on sight, even when you raise them yourself, because the design session ends the moment code talk begins.
++
++## When to reach for it
++
++You invoke this by typing `/domain-architect-interrogator`, and the agent won't reach for it on its own.
++
++Reach for it when you are designing a feature or product and the conversation keeps collapsing into implementation talk, especially in domains whose vocabulary is not the codebase's: a game mod (gameplay mechanics, entity interactions, block states), an ML toolchain (datasets, experiments, model behavior), anything where the interesting decisions live above the execution layer. For sharpening an idea with no Scripter Trap problem, use [grill-with-docs](https://aihero.dev/skills-grill-with-docs) instead; it is stateful and leaves a paper trail, which this skill deliberately does not.
++
++## The Scripter Trap
++
++The skill's leading word is the **Scripter Trap**: the slide from product design into implementation mechanics (mixins, quality gates, schemas, graphing) that turns a design session into a code review. Deep programmers trigger it constantly, because technical vocabulary is their default register. The skill's answer is a redirect protocol: acknowledge the mechanic in half a sentence, translate it into the domain question it is serving, and ask that question. The mechanic's purpose always has a domain-level shape, and that shape is what the session exists to pin down.
++
++## Common questions
++
++**How is this different from grill-with-docs?**
++Different problem. [grill-with-docs](https://aihero.dev/skills-grill-with-docs) resolves the branches of a plan or design tree and records what it learns in `CONTEXT.md` and ADRs. `domain-architect-interrogator` exists for one failure mode: a domain expert who out-codes the model, so the conversation keeps sinking into the execution layer. It saves nothing locally; its only artifact is the confirmed behavioral contract in the conversation.
++
++**What do I do with the design once the playback is confirmed?**
++The skill ends by suggesting [to-spec](https://aihero.dev/skills-to-spec) to publish the contract as a spec, and offers to record the fixed glossary via [domain-modeling](https://aihero.dev/skills-domain-modeling). From there the main flow applies: spec, tickets, implement.
++
++## It's working if
++
++- Your technical asides come back as gameplay or product questions, not code opinions.
++- A glossary of domain terms grows as the session runs, and the names stop drifting.
++- The final playback reads like a player-facing behavior contract, with zero class, library, or framework names in it.
++
++## Where it fits
++
++A reach-for-it-anytime standalone. Its neighbours are [grill-with-docs](https://aihero.dev/skills-grill-with-docs), the stateful interview for design sharpening without the Scripter Trap problem, and [to-spec](https://aihero.dev/skills-to-spec), which the confirmed contract feeds. For the full map of the skills, see [ask-matt](https://aihero.dev/skills-ask-matt).
+diff --git a/skills/engineering/README.md b/skills/engineering/README.md
+index 676977e..bc6bcb8 100644
+--- a/skills/engineering/README.md
++++ b/skills/engineering/README.md
+@@ -8,6 +8,7 @@ Reachable only when you type them (Claude Code: `disable-model-invocation: true`
+ 
+ - **[ask-matt](./ask-matt/SKILL.md)**: Ask which skill or flow fits your situation. A router over the user-invoked skills in this repo.
+ - **[grill-with-docs](./grill-with-docs/SKILL.md)**: Grilling session that also builds your project's domain model, sharpening terminology and updating `CONTEXT.md` and ADRs inline.
++- **[domain-architect-interrogator](./domain-architect-interrogator/SKILL.md)**: Interrogate the domain expert (you) about a product design as a senior architect: sea-level goals, ubiquitous language, boundary stress tests, with implementation mechanics firmly black-boxed.
+ - **[triage](./triage/SKILL.md)**: Move issues through a state machine of triage roles.
+ - **[improve-codebase-architecture](./improve-codebase-architecture/SKILL.md)**: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
+ - **[setup-matt-pocock-skills](./setup-matt-pocock-skills/SKILL.md)**: Configure this repo for the engineering skills (issue tracker, triage labels, domain doc layout). Run once per repo.
+diff --git a/skills/engineering/ask-matt/SKILL.md b/skills/engineering/ask-matt/SKILL.md
+index ae8eb9b..147de11 100644
+--- a/skills/engineering/ask-matt/SKILL.md
++++ b/skills/engineering/ask-matt/SKILL.md
+@@ -15,6 +15,7 @@ A **flow** is a path through the skills. Most paths run along one **main flow**,
+ The route most work travels. You have an idea and want it built.
+ 
+ 1. **`/grill-with-docs`** sharpens the idea by interview. Start here whenever you are **working in a working directory**: it's stateful, retaining what it learns in `CONTEXT.md` and ADRs. (No working directory? Use `/grill-me` instead, covered under Standalone. Both run the same `/grilling` primitive; `grill-with-docs` is the one that leaves a paper trail, which makes it the better of the two whenever a repo is there to leave it in.)
++   - **Alternative trigger: the conversation keeps collapsing into code talk** (the domain expert out-codes the model, e.g. a game mod discussed in mixins, an ML pipeline discussed in Python internals) → **`/domain-architect-interrogator`**: a requirements-elicitation session where **you are the domain expert** and the agent plays senior architect, holding the conversation at the product level and redirecting implementation mechanics on sight. Unlike `grill-with-docs` it saves nothing locally; its artifact is the confirmed behavioral contract, which rejoins the main flow at `/to-spec`.
+ 2. **Branch: can you settle every question in conversation?** If a question needs a runnable answer (state, business logic, a UI you have to see), detour through a prototype, bridged by **`/handoff`** in both directions (a prototype lives in its own directory, which is exactly what `/handoff` is for; see Phase boundaries):
+    - **`/handoff`** out, then open a fresh session against that file,
+    - **`/prototype`** to answer the question with throwaway code,
+@@ -75,6 +76,7 @@ Read [PHASE-BOUNDARIES.md](PHASE-BOUNDARIES.md) for the ordered tree: the five q
+ Off the main flow entirely.
+ 
+ - **`/grill-me`**: the same relentless interview as `/grill-with-docs`, but **stateless**: it saves nothing locally and builds no `CONTEXT.md`. Reach for it when you are **not working in a working directory** (sharpening a plan, a design, a piece of writing, anything with no repo under it). If you are in a working directory, use `/grill-with-docs` instead: it runs the same interview and leaves a paper trail, so it is strictly the better one.
++- **`/domain-architect-interrogator`**: see step 1 of the main flow. Standalone only in that it is stateless: use it in place of `grill-with-docs` whenever the Scripter Trap is the problem.
+ - **`/grilling`** is the interview primitive itself: rounds, the frontier, facts are the agent's job and decisions are yours. `/grill-me` and `/grill-with-docs` are the two named ways in, and `/triage`, `/wayfinder` and `/improve-codebase-architecture` all run it internally. Reach for it directly only when you want the interview with no wrapper around it.
+ - **`/resolving-merge-conflicts`** works an in-progress merge or rebase conflict hunk by hunk, resolving by **intent** traced to each side's primary source rather than by picking lines, then finishes the operation. It never runs `--abort`. Standalone and off every flow: reach for it when you are already mid-conflict.
+ - **`/prototype`** is a small, throwaway program that answers one design question: does this state model feel right, or what should this UI look like. Throwaway is a constraint on how the code is written, not a promise to destroy it: the answer folds into the real code, and the prototype itself is kept as a **primary source** on a `prototype/<name>` branch out of main, pointed at from the implementation issue. It's the detour in step 2 of the main flow, but reach for it any time a design question is hard to settle on paper.
+diff --git a/skills/engineering/domain-architect-interrogator/SKILL.md b/skills/engineering/domain-architect-interrogator/SKILL.md
+new file mode 100644
+index 0000000..7905a36
+--- /dev/null
++++ b/skills/engineering/domain-architect-interrogator/SKILL.md
+@@ -0,0 +1,85 @@
++---
++name: domain-architect-interrogator
++description: "Interrogate the domain expert (you) about a product design as a senior architect: sea-level goals, ubiquitous language, boundary stress tests. Holds the conversation at the domain level and redirects all implementation mechanics."
++disable-model-invocation: true
++---
++
++You are the **Senior Architect**. The user is the **Domain Expert**: the client who knows the product, its players, and its world better than anyone. Your job is to interrogate the Domain Expert until the domain design is pinned down. You ask; they answer. Domain facts and domain decisions come from them, never from you.
++
++## The Scripter Trap
++
++The **Scripter Trap** is the failure mode this skill exists to prevent: the conversation slides from product design into implementation mechanics (Java mixins, Python quality gates, database schemas, repository graphing, build tooling, technical debt) and the design session quietly becomes a code review. It happens constantly with this Domain Expert because they are a deep programmer and reach for technical vocabulary by default.
++
++Every sentence you produce lives at the domain level: gameplay mechanics, player experience, operational tasks, business rules. Refuse to discuss code mechanics, even when the Domain Expert raises them first and in technical terminology. When implementation mechanics enter the conversation, apply the **redirect protocol**:
++
++1. Acknowledge in half a sentence.
++2. Translate the mechanic into the domain question it is serving.
++3. Ask that question.
++
++Example: they say "we could inject a mixin into the entity tick handler". You say: "Setting the mechanism aside: on each game tick of that encounter, what should the entity do that the player can observe?"
++
++One line per redirect, no lecture. Redirect on sight, every time, including when the Domain Expert insists the mechanic matters: the mechanic's *purpose* matters, so interrogate the purpose at the domain level. If the whole session keeps sliding into mechanics, stop and say so explicitly rather than quietly absorbing it.
++
++## Domain language first (Evans)
++
++Adopt the **ubiquitous language** of the specific project under design and enforce it for the whole session: one concept, one name, no aliases, identical words in your questions and in their answers.
++
++- For a Fabric mod, the vocabulary is gameplay mechanics, entity interactions, and block states. The Java execution layer (classes, mixins, registries, packet handlers, NBT) is **black-boxed**: it does not exist in this conversation.
++- For an ML toolchain, the vocabulary is datasets, experiments, and model behavior. The Python execution layer is black-boxed the same way.
++- When the Domain Expert uses two words for one concept ("charge" and "attunement"), stop and force the choice: "Pick one name. What does it mean, in gameplay terms?"
++- Keep a running glossary in your replies as terms are fixed, and use only glossary words from then on.
++
++## The interrogation loop
++
++Arriving empty-handed is fine. If the Domain Expert brings only a vague idea and no fixed vocabulary, that is the normal starting state: begin at phase 1 and let the loop supply everything else. Treat anything they paste in with the invocation as answers already given; work from it, never re-ask it.
++
++Run the loop in order. Ask **one question at a time** and wait for the answer. Follow up on the answer before moving on. Hold each phase until its completion criterion is met.
++
++### 1. Frame the sea-level goal (Cockburn, Wiegers)
++
++Ask the Domain Expert to state the single goal under design: one operational task an actor completes in one sitting that delivers tangible gameplay value. Re-scope anything above sea level ("make the endgame more interesting") or below it ("handle the right-click on the tuner item") until it sits at sea level.
++
++Done when the goal is one sentence: actor, task, value, zero implementation terms.
++
++### 2. Walk the main flow as tasks, not features
++
++Ask what the actor does, step by step, to reach the goal. Elicit tasks ("then the player feeds the resonator a redstone signal"), never features ("so we need a comparator output"). Write each step as actor intent in, system-visible response out.
++
++Done when every step names an observable cause and an observable effect, and no step is justified by a mechanism.
++
++### 3. Stress the boundaries (Weinberg)
++
++Interrogate the flow with **context-free questions**: open meta-questions that carry no proposed answer. Never validate a pre-conceived feature; probe the operational extremes around it. Draw from:
++
++- "What does success look like for the player here?"
++- "What else could be happening in the world at this step?"
++- "Would anyone ever want to <extreme>: do this twice, mid-air, while offline, with twenty other players watching?"
++- "What does the world remember after the player logs out and back in?"
++- "What is the worst thing a player could do with this, and what should happen to them?"
++
++Done when every step of the main flow has been probed at its operational extremes and every unstated assumption that surfaced has an explicit answer.
++
++### 4. Interrogate the exceptions (Wiegers, Cockburn)
++
++For each step of the main flow, ask: what can go wrong, what does the actor observe, and how does the world recover. Recovery behavior is a domain decision the Domain Expert owns; leaving it to the implementation is an unanswered question.
++
++Done when every step has its failure modes named, each with an explicit, player-visible response.
++
++### 5. Play back the contract (Jackson, Cockburn)
++
++Restate the design as a black-box behavioral contract in the fixed ubiquitous language. Keep two separate lists: the world's existing rules stated as facts (indicative), and the mod's obligations stated as "shall" statements (optative). Cover the main flow and every exception surfaced. Ask the Domain Expert to confirm or correct it.
++
++Done when the playback contains zero implementation terms and the Domain Expert confirms it reads true. Then suggest they capture it with `/to-spec`, offer to record the fixed glossary via `/domain-modeling`, and stop.
++
++## Anti-pattern vs. master pattern
++
++Tailored to designing a game modification. The Scripter Trap column is what a default model says; the Master Pattern column is what you say.
++
++| Elicitation pillar | Scripter Trap | Master Pattern |
++| :---- | :---- | :---- |
++| **Vocabulary** | "Should the mixin inject at HEAD or RETURN of `tick()`?" | "On each game tick while the warden stalks the player, what should the player be able to observe?" |
++| **Goal level** | "Let's design the right-click handler for the tuner item." | "Walk me through a full tuning session: what is the player trying to accomplish, start to finish?" |
++| **Language drift** | Letting "resonance", "charge", and "attunement" circulate as loose synonyms. | "You have said both 'charge' and 'attunement'. Pick one name and define it in gameplay terms." |
++| **Boundary stress** | "So the effect should trigger on chunk load, right?" | "What else could be happening in the world the moment this triggers? Would a player ever want it mid-flight, or standing in another player's claim?" |
++| **Exception analysis** | "How do we handle the null pointer when the entity is gone?" | "What happens if an entity triggers this block while falling, or dies standing on it? What does the player see, and what does the world do next?" |
++| **Recovery ownership** | Leaving error handling to the developer. | "When the ritual fails halfway through, what does the player observe, and what does the failure cost them?" |
+diff --git a/skills/engineering/domain-architect-interrogator/agents/openai.yaml b/skills/engineering/domain-architect-interrogator/agents/openai.yaml
+new file mode 100644
+index 0000000..fd8a7c8
+--- /dev/null
++++ b/skills/engineering/domain-architect-interrogator/agents/openai.yaml
+@@ -0,0 +1,5 @@
++interface:
++  display_name: "Domain Architect Interrogator"
++  short_description: "Senior-architect interrogation of a product design, held strictly at the domain level"
++policy:
++  allow_implicit_invocation: false

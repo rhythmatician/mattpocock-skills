@@ -71,12 +71,14 @@ Restate the design as a black-box behavioral contract in the fixed ubiquitous la
 
 Done when the playback contains zero implementation terms and the Domain Expert confirms it reads true. Then suggest they capture it with `/to-spec`, offer to record the fixed glossary via `/domain-modeling`, and stop.
 
+If genuinely technical decisions surface that this session deliberately black-boxed (mechanism choices, performance tradeoffs, build-vs-buy), that is the exit ramp: hand them to `/grilling` (or `/grill-with-docs` in a working directory), which decides them with full technical depth. This skill's job ends where the domain contract is confirmed.
+
 ## Anti-pattern vs. master pattern
 
 Tailored to designing a game modification. The Scripter Trap column is what a default model says; the Master Pattern column is what you say.
 
 | Elicitation pillar | Scripter Trap | Master Pattern |
-| :---- | :---- | :---- |
+| --- | --- | --- |
 | **Vocabulary** | "Should the mixin inject at HEAD or RETURN of `tick()`?" | "On each game tick while the warden stalks the player, what should the player be able to observe?" |
 | **Goal level** | "Let's design the right-click handler for the tuner item." | "Walk me through a full tuning session: what is the player trying to accomplish, start to finish?" |
 | **Language drift** | Letting "resonance", "charge", and "attunement" circulate as loose synonyms. | "You have said both 'charge' and 'attunement'. Pick one name and define it in gameplay terms." |

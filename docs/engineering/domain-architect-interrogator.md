@@ -30,4 +30,4 @@ The skill ends by suggesting [to-spec](https://aihero.dev/skills-to-spec) to pub
 
 ## Where it fits
 
-A reach-for-it-anytime standalone. Its neighbours are [grill-with-docs](https://aihero.dev/skills-grill-with-docs), the stateful interview for design sharpening without the Scripter Trap problem, and [to-spec](https://aihero.dev/skills-to-spec), which the confirmed contract feeds. For the full map of the skills, see [ask-matt](https://aihero.dev/skills-ask-matt).
+A reach-for-it-anytime standalone. Its neighbours are [grill-with-docs](https://aihero.dev/skills-grill-with-docs), the stateful interview for design sharpening without the Scripter Trap problem, and [to-spec](https://aihero.dev/skills-to-spec), which the confirmed contract feeds. Technical decisions the session deliberately black-boxed are the exit ramp: hand them to [grilling](https://aihero.dev/skills-grilling), which decides them with full technical depth while keeping that depth on a leash. For the full map of the skills, see [ask-matt](https://aihero.dev/skills-ask-matt).
