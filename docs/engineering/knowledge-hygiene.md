@@ -6,7 +6,7 @@ It audits **authority**, not matching text. Similar prose may be a harmless expl
 
 ## When to reach for it
 
-Type `/knowledge-hygiene`, or the agent reaches for it automatically when a task is about stale docs, competing sources of truth, conflicting agent instructions, repository-memory cleanup, or making a repository safer for agents.
+Type `/knowledge-hygiene` for a focused audit. The agent reaches for it automatically only as the knowledge child of [codebase-health](https://aihero.dev/skills-codebase-health), where it returns the same evidence as a structured, read-only lens result.
 
 | Your situation | Reach for |
 | --- | --- |

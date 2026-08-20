@@ -8,7 +8,7 @@ Three disciplines keep the report from becoming generic cleanup advice. It expla
 
 ## When to reach for it
 
-You invoke this by typing `/improve-codebase-architecture`; the [agent](https://www.aihero.dev/ai-coding-dictionary/agent) will not reach for it on its own.
+Type `/improve-codebase-architecture` for the full report and grilling flow. The [agent](https://www.aihero.dev/ai-coding-dictionary/agent) reaches for it automatically only as the architecture child of [codebase-health](https://aihero.dev/skills-codebase-health); that child run returns grounded structured candidates and stops before the report or interview.
 
 It sits outside the build loop: it is not a step in the main loop but something you run periodically to queue up more work to improve the codebase. The four situations it gets used in:
 
@@ -49,6 +49,8 @@ Each card follows one stable report contract so later health work can consume it
 | `Speculative` | Surfaced for completeness. Most of these are safe to ignore. |
 
 The report ends with a **Top recommendation** (the one it would tackle first), and then the skill stops and asks which candidate you want to explore. Nothing has been decided at that point, and no code has moved.
+
+Inside `codebase-health`, the same grounding and qualification discipline runs without the report or grilling loop. This keeps the architecture lens independent and machine-readable while reserving the interactive design flow for a candidate you explicitly choose.
 
 ## What happens after you pick one
 
