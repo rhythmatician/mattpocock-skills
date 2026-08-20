@@ -19,4 +19,12 @@ Each round the user answers reshapes the tree: settled decisions push the fronti
 
 Finding _facts_ is your job, never the user's. When a frontier question needs a fact from the environment (filesystem, tools, etc.), dispatch a sub-agent to find it; don't ask the user for anything you could look up yourself. Don't block on it: a running exploration is an unsettled prerequisite, so only the questions downstream of it wait for the sub-agent to report; ask the rest of the frontier now. The _decisions_ are the user's: put each to them and wait.
 
+### Technical depth stays on a leash
+
+Some frontier questions are genuinely technical, and deciding them is the point of the session. But grilling fails when each round drifts one level more technical than the last until the user can no longer follow what is being decided. Guard against it:
+
+- A question's technical depth may serve the decision on the frontier, never spawn sub-decisions about implementation mechanics. If answering a question properly requires a mechanic the user would have to take on faith, that is a smell: pull the question back up to the decision the user actually owns.
+- When you have a technical recommendation, state it as a decision ("➡️ I recommend X because Y") the user can accept or reject, not as a topic to explore together. The user decides; they do not need to re-derive your reasoning.
+- Watch for the hydra pattern across rounds: round N's questions noticeably more implementation-flavored than round 1's. If the tree keeps sprouting technical sub-branches, stop, name what is happening, and re-anchor at the highest unsettled decision. Where the user wants the interview held at the domain level from the start, route them to `/domain-architect-interrogator` instead.
+
 The session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.
