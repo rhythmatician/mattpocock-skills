@@ -26,6 +26,7 @@ export type ProcessResult = {
 export const runProcess = async (options: {
   args: string[];
   cwd: string;
+  env?: NodeJS.ProcessEnv;
   executable: string;
   maxOutputBytes?: number;
   signal?: AbortSignal;
@@ -42,6 +43,7 @@ export const runProcess = async (options: {
     const child = spawn(options.executable, options.args, {
       cwd: options.cwd,
       detached: process.platform !== "win32",
+      env: options.env,
       shell: false,
       windowsHide: true,
     });

@@ -52,6 +52,7 @@ Not feature work, just upkeep.
 
 - **`/improve-codebase-architecture`** runs whenever you have a spare moment to keep the codebase good for agents to operate in. It surfaces **deepening opportunities**; picking one _generates an idea_ you can take into the main flow at `/grill-with-docs`. It's the survey that finds the candidates; **`/codebase-design`** (below) is the bench you design the chosen one on.
 - **`/knowledge-hygiene`** audits the repository's memory when current truth is unclear: stale docs, conflicting agent instructions, duplicate authority, temporary state in durable files, or code and docs independently defining the same fact. It learns the repository's own authority model, reports evidence-backed candidates, and leaves remediation for a separately approved pass.
+- **`/test-suite-health`** audits the safety net itself when the question is whether tests deserve confidence: escaped defects despite high coverage, flakes or order dependence, pathological runtime, configuration interactions, failure containment, or readiness for a risky refactor. It measures before interpreting and keeps mutation optional and targeted. Use `/tdd` instead when writing tests for one new behavior.
 
 ## Vocabulary underneath
 

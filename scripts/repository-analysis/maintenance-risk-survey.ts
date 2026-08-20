@@ -1,24 +1,12 @@
-import { createHash } from "node:crypto";
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-  readlinkSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  relative,
-  resolve,
-  sep,
-} from "node:path";
+import { resolve } from "node:path";
 
-import { ProcessExecutionError, runProcess } from "./process.ts";
+import {
+  isPathInsideRepository,
+  writeJsonEvidence,
+} from "./evidence.ts";
+import { runGit } from "./git.ts";
+import { ProcessExecutionError } from "./process.ts";
+import { readRepositoryState } from "./repository-state.ts";
 
 export type AnalysisDepth = "quick" | "standard" | "deep";
 
@@ -136,32 +124,6 @@ const EXCLUDED_PATHS = [
 
 const BULK_MECHANICAL_COMMIT =
   /^(chore(\(.+\))?:\s*)?(format|generated?|vendor|lockfile|dependencies?|dependabot|renovate)\b/i;
-
-const runGit = async (
-  executable: string,
-  args: string[],
-  options: {
-    cwd: string;
-    signal?: AbortSignal;
-    timeoutMs: number;
-  },
-) => {
-  const result = await runProcess({
-    args,
-    cwd: options.cwd,
-    executable,
-    maxOutputBytes: 8 * 1024 * 1024,
-    signal: options.signal,
-    timeoutMs: options.timeoutMs,
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(
-      result.stderr.trim() ||
-        `Git exited with code ${result.exitCode ?? "unknown"}`,
-    );
-  }
-  return result.stdout;
-};
 
 const parseHistory = (output: string): HistoryCommit[] =>
   (() => {
@@ -345,52 +307,6 @@ const createEvidence = (
   };
 };
 
-const resolvePhysicalPath = (targetPath: string) => {
-  const absoluteTarget = resolve(targetPath);
-  const missingSegments: string[] = [];
-  let existingParent = absoluteTarget;
-  while (!existsSync(existingParent)) {
-    missingSegments.unshift(basename(existingParent));
-    const parent = dirname(existingParent);
-    if (parent === existingParent) break;
-    existingParent = parent;
-  }
-  return resolve(
-    realpathSync(existingParent),
-    ...missingSegments,
-  );
-};
-
-const isInsideRepository = (repositoryRoot: string, targetPath: string) => {
-  const relativePath = relative(
-    resolvePhysicalPath(repositoryRoot),
-    resolvePhysicalPath(targetPath),
-  );
-  return (
-    relativePath === "" ||
-    (relativePath !== ".." &&
-      !relativePath.startsWith(`..${sep}`) &&
-      !isAbsolute(relativePath))
-  );
-};
-
-const writeEvidence = (outputPath: string, survey: MaintenanceRiskSurvey) => {
-  const absolutePath = resolve(outputPath);
-  mkdirSync(dirname(absolutePath), { recursive: true });
-  const temporaryPath = `${absolutePath}.${process.pid}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify(survey, null, 2)}\n`);
-  try {
-    renameSync(temporaryPath, absolutePath);
-  } catch (error) {
-    try {
-      unlinkSync(temporaryPath);
-    } catch {
-      // The original write error is more useful than cleanup failure.
-    }
-    throw error;
-  }
-};
-
 const emptyEvidence = (): MaintenanceRiskSurvey["evidence"] => ({
   changeAmplification: [],
   exclusions: [],
@@ -425,59 +341,13 @@ export const surveyMaintenanceRisk = async (
     const head = (
       await runGit(gitExecutable, ["rev-parse", "HEAD"], rootCommandOptions)
     ).trim();
-    const status = await runGit(
+    const repositoryState = await readRepositoryState({
       gitExecutable,
-      ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-      rootCommandOptions,
-    );
-    const trackedPaths = (
-      await runGit(
-        gitExecutable,
-        ["diff", "--name-only", "-z", "HEAD"],
-        rootCommandOptions,
-      )
-    )
-      .split("\x00")
-      .filter(Boolean);
-    const untrackedPaths = (
-      await runGit(
-        gitExecutable,
-        ["ls-files", "--others", "--exclude-standard", "-z"],
-        rootCommandOptions,
-      )
-    )
-      .split("\x00")
-      .filter(Boolean);
-    const stateHash = createHash("sha256")
-      .update(head)
-      .update("\x00")
-      .update(status);
-    const regularDirtyPaths: string[] = [];
-    for (const path of [...new Set([...trackedPaths, ...untrackedPaths])].sort()) {
-      stateHash.update("\x00").update(path).update("\x00");
-      const absolutePath = resolve(root, path);
-      if (!existsSync(absolutePath)) {
-        stateHash.update("missing");
-        continue;
-      }
-      const fileStatus = lstatSync(absolutePath);
-      if (fileStatus.isSymbolicLink()) {
-        stateHash.update("symlink:").update(readlinkSync(absolutePath));
-      } else if (fileStatus.isFile()) {
-        regularDirtyPaths.push(path);
-      } else {
-        stateHash.update(`special:${fileStatus.mode}:${fileStatus.size}`);
-      }
-    }
-    for (let index = 0; index < regularDirtyPaths.length; index += 100) {
-      const paths = regularDirtyPaths.slice(index, index + 100);
-      const objectIds = await runGit(
-        gitExecutable,
-        ["hash-object", "--no-filters", "--", ...paths],
-        rootCommandOptions,
-      );
-      stateHash.update(objectIds);
-    }
+      head,
+      root,
+      signal: options.signal,
+      timeoutMs: depth.timeoutMs,
+    });
 
     const history = await runGit(
       gitExecutable,
@@ -513,10 +383,10 @@ export const surveyMaintenanceRisk = async (
         toolVersion,
       },
       repository: {
-        dirty: status.length > 0,
+        dirty: repositoryState.dirty,
         head,
         root,
-        stateId: stateHash.digest("hex"),
+        stateId: repositoryState.stateId,
       },
       status: analysis.couplingLimited ? "partial" : "complete",
     };
@@ -555,12 +425,12 @@ export const surveyMaintenanceRisk = async (
   }
 
   if (options.outputPath) {
-    if (isInsideRepository(survey.repository.root, options.outputPath)) {
+    if (isPathInsideRepository(survey.repository.root, options.outputPath)) {
       throw new Error(
         "Analysis output must be outside the target repository so audit evidence does not alter repository state",
       );
     }
-    writeEvidence(options.outputPath, survey);
+    writeJsonEvidence(options.outputPath, survey);
   }
   return survey;
 };
