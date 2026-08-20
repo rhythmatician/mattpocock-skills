@@ -214,6 +214,7 @@ Skills I use daily for code work.
 - **[diagnosing-bugs](./skills/engineering/diagnosing-bugs/SKILL.md)**: Disciplined diagnosis loop for hard bugs and performance regressions: build a feedback loop that goes red on this bug → minimise → hypothesise → instrument → fix → regression-test.
 - **[research](./skills/engineering/research/SKILL.md)**: Investigate a question against high-trust primary sources and capture the findings as a cited Markdown file in the repo, run as a background agent.
 - **[knowledge-hygiene](./skills/engineering/knowledge-hygiene/SKILL.md)**: Audit duplicate authority, stale repository knowledge, conflicting agent instructions, and code/doc source-of-truth splits without rewriting suspected duplicates.
+- **[feedback-loop-health](./skills/engineering/feedback-loop-health/SKILL.md)**: Measure end-to-end time from an edit to trustworthy automated or human feedback, then identify the stages that dominate the wait.
 - **[maintenance-risk](./skills/engineering/maintenance-risk/SKILL.md)**: Find empirical maintenance hotspots through deterministic history, complexity, dependency, and dead-architecture evidence.
 - **[tdd](./skills/engineering/tdd/SKILL.md)**: Test-driven development with a red-green-refactor loop. Builds features or fixes bugs one vertical slice at a time.
 - **[test-suite-health](./skills/engineering/test-suite-health/SKILL.md)**: Audit whether an existing test suite deserves confidence through cheap diagnostics, focused resilience and state checks, and optional targeted mutation.

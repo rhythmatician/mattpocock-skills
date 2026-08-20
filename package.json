@@ -12,6 +12,8 @@
     "changeset": "changeset",
     "version": "changeset version && node scripts/sync-plugin-version.mjs",
     "check-plugin-version": "node scripts/sync-plugin-version.mjs --check",
+    "feedback-loop-health:run": "tsx scripts/repository-analysis/feedback-loop-health-run.ts",
+    "feedback-loop-health:survey": "tsx scripts/repository-analysis/feedback-loop-health-survey.ts",
     "maintenance-risk:survey": "tsx scripts/repository-analysis/maintenance-risk-survey.ts",
     "test-suite-health:run": "tsx scripts/repository-analysis/test-suite-health-run.ts",
     "test-suite-health:survey": "tsx scripts/repository-analysis/test-suite-health-survey.ts",

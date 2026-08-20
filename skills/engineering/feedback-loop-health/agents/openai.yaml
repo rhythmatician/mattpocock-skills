@@ -1,0 +1,3 @@
+interface:
+  display_name: "Feedback Loop Health"
+  short_description: "Measure time to trustworthy feedback"
