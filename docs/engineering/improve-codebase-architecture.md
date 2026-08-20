@@ -1,10 +1,10 @@
 ## What it does
 
-`improve-codebase-architecture` surveys a codebase for **deepening opportunities**: places where a shallow module (an interface nearly as complex as the thing it hides) could become a deep one. It writes them up as a self-contained HTML report, and then [grills](https://www.aihero.dev/ai-coding-dictionary/grilling) you through whichever one you pick.
+`improve-codebase-architecture` surveys a codebase for **deepening opportunities**: places where a shallow module (an interface nearly as complex as the thing it hides) could become a deep one. It grounds the subsystem first, writes candidates to a self-contained HTML report, and then [grills](https://www.aihero.dev/ai-coding-dictionary/grilling) you through whichever one you pick.
 
 It never changes the code. The whole run produces one HTML file in your OS temp directory and a conversation; the refactor itself happens later, in a separate [session](https://www.aihero.dev/ai-coding-dictionary/session), through the normal build flow. That is what makes it a survey rather than a refactoring tool, and it is why the skill is worth running on a codebase you are not ready to touch yet.
 
-Two filters keep the report from becoming generic cleanup advice. Every candidate has to pass the **deletion test**: would removing this module concentrate complexity behind a smaller interface, or just spread it across callers? Only the "concentrates" cases earn a card. And unless you point it at a specific area, it reads recent commit history first and biases the scan toward paths that are actively changing, on the grounds that a deepening in code nobody touches is a refactor you will never cash in.
+Three disciplines keep the report from becoming generic cleanup advice. It explains the full path from trigger to outcome before critique. Every candidate asks what significant **secret** the module should hide and what **agreement** leaks across its seam. Then it applies the **deletion test**: would removing this module concentrate complexity behind a smaller interface, or just spread it across callers? Unless you point it at a specific area, recent commit history biases the scan toward paths that are actively changing, where the leverage can pay back.
 
 ## When to reach for it
 
@@ -22,6 +22,9 @@ It sits outside the build loop: it is not a step in the main loop but something 
 Where it is confusable with siblings:
 
 - For designing one module you have already chosen, use [codebase-design](https://aihero.dev/skills-codebase-design): that is the bench, this is the survey that finds what to put on it.
+- For measured churn, temporal coupling, or evidence-based hotspot ranking, use `/maintenance-risk`. A metric can nominate an area for this survey, but it cannot replace grounding.
+- For confidence in the safety net before a risky refactor, use `/test-suite-health`.
+- For conflicting definitions or competing sources of truth, use `/knowledge-hygiene`.
 - For a whole effort too big to hold in one session, use [wayfinder](https://aihero.dev/skills-wayfinder).
 - For "this specific thing is broken," use [diagnosing-bugs](https://aihero.dev/skills-diagnosing-bugs). It hands back here when the real finding is that there is no good seam to lock the bug down.
 
@@ -31,11 +34,13 @@ None to run it. It reads `CONTEXT.md` and any ADRs in `docs/adr/` if they exist,
 
 It writes in two places. The report goes to `<tmpdir>/architecture-review-<timestamp>.html`, outside the repo. During the grilling loop it will add or sharpen terms in `CONTEXT.md`, creating that file if it does not exist, and offer to record a rejected candidate as an ADR so a future run does not re-suggest it.
 
-## Depth, and the report that hunts for it
+## Depth, secrets, and leaking agreement
 
-The skill turns on one idea: **depth**. A deep module puts a lot of behaviour behind a small, stable interface. A shallow one leaks its implementation through an interface nearly as wide as the code beneath it. The report hunts for shallowness in three forms: pure functions extracted only for testability while the real bugs live in how they are called (no **locality**), modules leaking across their **seams**, and a concept you cannot understand without opening five files. It closes with a proposal for the deepening that fixes it.
+The skill turns on **depth**. A deep module puts a lot of behaviour behind a small, stable interface. The secret lens asks what difficult or changeable decision earns that interface, and whether callers still have to know fragments of it. Trivial utilities can stay trivial. A grab-bag with several unrelated secrets should split rather than deepen as one module.
 
-Each candidate is a card: the files involved, the friction, a plain-English solution, the benefit stated in terms of **locality** and **leverage**, a before/after diagram, and a strength badge.
+The second lens is **connascence**: the concrete knowledge that must agree across a seam, judged together with its distance. Strong coordination inside one coherent module can be healthy. The same state sequence or algorithm duplicated across distant modules is a locality candidate. Weak, explicit agreement at distance may be fine.
+
+Each card uses a stable contract: Files, Secret, Leaking agreement, Distance/locality, Caller shape, Alternative shapes considered, Refactor direction, Evidence, Benefits, Before / After diagram, and Recommendation strength. Caller shape comes first in the design reasoning: it says what an improved caller should know and do before types or interfaces are proposed. Consequential redesigns show at least two structurally distinct shapes.
 
 | Badge | What it means for you |
 | --- | --- |
@@ -47,7 +52,7 @@ The report ends with a **Top recommendation** (the one it would tackle first), a
 
 ## What happens after you pick one
 
-Picking a candidate starts a [grilling](https://aihero.dev/skills-grilling) session over it: constraints, what sits behind the seam, which tests survive, what the deepened interface should look like. The output of that session is a decision, not a diff. From there the normal flow applies: take the decision into [to-spec](https://aihero.dev/skills-to-spec), then [to-tickets](https://aihero.dev/skills-to-tickets), then [implement](https://aihero.dev/skills-implement).
+Picking a candidate starts a [grilling](https://aihero.dev/skills-grilling) session over it: constraints, target caller usage, what sits behind the seam, which tests survive, and which of at least two interface shapes is strongest. The output is a decision, not a diff. From there the normal flow applies: take the decision into [to-spec](https://aihero.dev/skills-to-spec), then [to-tickets](https://aihero.dev/skills-to-tickets), then [implement](https://aihero.dev/skills-implement). Repeated escape hatches or caller-side exceptions of the same shape during implementation are evidence to re-ground and redesign; one hard edge case is not.
 
 ## Common questions
 
@@ -75,13 +80,17 @@ Partly. It is strong on big existing codebases lacking consistent structure, and
 
 `/codebase-design` is a reference, not a session driver. It supplies the vocabulary (module, interface, depth, seam, adapter, leverage, locality), and this skill borrows it. Pointing a fresh agent at `/codebase-design` as the thing to "do" is a known failure: with no process of its own to follow, the agent invents one, re-explores code and runs for a very long time before asking you anything. Drive with this skill; consume that one.
 
+**Does every module need an architectural secret?**
+
+No. The question is useful when a seam claims to hide meaningful complexity. A parser may hide grammar and recovery decisions; an orchestration module may hide transition ordering. A small formatter or obvious utility can earn its keep without a grand secret. Forcing one onto trivial code produces ceremony, not depth.
+
 **Will it ever tell me the codebase is fine?**
 
 Rarely, and you should know that going in. The skill is built to output findings, so the framing pushes it toward producing candidates rather than concluding that nothing is wrong. The strength badges are the defence: a report where everything is `Speculative` is the skill telling you it found nothing, in the only way it knows how.
 
 **Does it work in Codex or another harness?**
 
-Partially. The exploration step names Claude Code's `Agent` tool with `subagent_type=Explore` directly, so a [harness](https://www.aihero.dev/ai-coding-dictionary/harness) without that tool may skip the parallel exploration rather than substitute its own. The skill still runs; the scan is just less thorough. A harness-neutral rewrite has been proposed but is not merged.
+Yes. The exploration step asks the current [harness](https://www.aihero.dev/ai-coding-dictionary/harness) to dispatch a subagent without naming one vendor's tool or agent type. The report format and grounding criteria are the same across harnesses; the exact dispatch mechanism can differ.
 
 **How do I actually implement deep modules in TypeScript?**
 
@@ -91,6 +100,9 @@ There is no good answer shipped with the skill. The recurring request is for a `
 
 - The candidates name your domain's concepts, not invented class names: "the Order intake module," not "the FooBarHandler."
 - The candidates cluster in files you have edited recently, not in dormant corners of the repo.
+- Every candidate traces the subsystem before judging it, names the module's secret, and identifies the exact agreement leaking across the seam.
+- Strong local coordination is left alone when it is cohesive; strong coordination at distance earns scrutiny, while weak harmless agreement does not get inflated into a finding.
+- A consequential redesign shows two distinct shapes derived from target caller usage, not two small variations on one interface.
 - No code changed during the run. The only new file is the HTML report in your temp directory.
 - It stops after the report and asks which candidate you want, rather than continuing on its own.
 - Each card explains the payoff as locality or leverage, and says which tests get simpler, not just "this is cleaner."
@@ -98,4 +110,4 @@ There is no good answer shipped with the skill. The recurring request is for a `
 
 ## Where it fits
 
-`improve-codebase-architecture` is **periodic maintenance**: run it every few days, outside any chain, to queue up work rather than to do it. Its neighbours are [codebase-design](https://aihero.dev/skills-codebase-design), which owns the depth-and-seam vocabulary every candidate is written in, [grilling](https://aihero.dev/skills-grilling), which walks the decision tree once you have chosen a candidate, and [domain-modeling](https://aihero.dev/skills-domain-modeling), which keeps `CONTEXT.md` and the ADRs current as the decision settles. What it produces is an idea, which re-enters the main build flow at [grill-with-docs](https://aihero.dev/skills-grill-with-docs) or [to-spec](https://aihero.dev/skills-to-spec). For which skill fits a situation, [ask-matt](https://aihero.dev/skills-ask-matt) is the router over the whole set.
+`improve-codebase-architecture` is **periodic maintenance**: run it every few days, outside any chain, to queue up work rather than to do it. Its neighbours are `/maintenance-risk`, which ranks empirical hotspots, [codebase-design](https://aihero.dev/skills-codebase-design), which owns the depth-and-seam vocabulary, and [grilling](https://aihero.dev/skills-grilling), which walks the decision tree once you choose a candidate. What it produces is an idea, which re-enters the main build flow at [grill-with-docs](https://aihero.dev/skills-grill-with-docs) or [to-spec](https://aihero.dev/skills-to-spec). For which skill fits a situation, [ask-matt](https://aihero.dev/skills-ask-matt) is the router over the whole set.

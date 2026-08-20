@@ -44,15 +44,20 @@ The diagrams carry the weight. Prose is sparse, plain, and uses the glossary ter
 Each candidate is one `<article>`:
 
 - **Title**: short, names the deepening (e.g. "Collapse the Order intake pipeline").
-- **Badge row**: recommendation strength (`Strong` = emerald, `Worth exploring` = amber, `Speculative` = slate), plus a tag for the dependency category (`in-process`, `local-substitutable`, `ports & adapters`, `mock`).
 - **Files**: monospaced list, `font-mono text-sm`.
+- **Secret**: one sentence naming the difficult, likely-to-change, or implementation-specific decision the module would hide.
+- **Leaking agreement**: one sentence naming exactly what callers or modules must currently know or coordinate.
+- **Distance/locality**: where the participants live, and whether strong coordination is contained locally or spread at distance.
+- **Caller shape**: a compact usage-first description of what an improved caller should need to know and do. Do not show a type or interface yet.
+- **Alternative shapes considered**: two or more materially different structures for a consequential redesign, with the recommended one identified. Use `Not consequential` plus a reason for a local, low-cost change.
+- **Refactor direction**: how the recommended shape localizes the secret and agreement behind a smaller seam.
+- **Evidence**: the traced flow and repeated implementation friction supporting the finding. Identify isolated incidents rather than presenting them as a pattern.
+- **Benefits**: bullets of ≤6 words each, stated in terms of locality, leverage, and testing. Examples: "Tests hit one interface", "Pricing agreement becomes local", "Delete 4 shallow modules".
 - **Before / After diagram**: the centrepiece. Two columns, side by side. See patterns below.
-- **Problem**: one sentence. What hurts.
-- **Solution**: one sentence. What changes.
-- **Wins**: bullets, ≤6 words each. e.g. "Tests hit one interface", "Pricing logic stops leaking", "Delete 4 shallow wrappers".
+- **Recommendation strength**: `Strong`, `Worth exploring`, or `Speculative`, rendered as a badge beside the dependency category (`in-process`, `local-substitutable`, `ports & adapters`, `mock`).
 - **ADR callout** (if applicable): one line in an amber-tinted box.
 
-No paragraphs of explanation. If the diagram needs a paragraph to be understood, redraw the diagram.
+Keep these labels and their order exact. They are the candidate contract for downstream health reports. No paragraphs of explanation. If the diagram needs a paragraph to be understood, redraw the diagram.
 
 ## Diagram patterns
 
@@ -107,7 +112,7 @@ One larger card. Candidate name, one sentence on why, anchor link to its card. T
 
 Plain English, concise, but the architectural nouns and verbs come straight from the `/codebase-design` skill. Concision is not an excuse to drift.
 
-**Use exactly:** module, interface, implementation, depth, deep, shallow, seam, adapter, leverage, locality.
+**Use exactly:** module, interface, implementation, depth, deep, shallow, seam, adapter, leverage, locality, secret, leaking agreement, caller shape.
 
 **Never substitute:** component, service, unit (for module) · API, signature (for interface) · boundary (for seam) · layer, wrapper (for module, when you mean module).
 
@@ -118,6 +123,6 @@ Plain English, concise, but the architectural nouns and verbs come straight from
 - "Deepen: one interface, one place to test."
 - "Two adapters justify the seam: HTTP in prod, in-memory in tests."
 
-**Wins bullets** name the gain in glossary terms: *"locality: bugs concentrate in one module"*, *"leverage: one interface, N call sites"*, *"interface shrinks; implementation absorbs the wrappers"*. Don't write *"easier to maintain"* or *"cleaner code"*, because those terms aren't in the glossary and don't earn their place.
+**Benefits bullets** name the gain in glossary terms: *"locality: bugs concentrate in one module"*, *"leverage: one interface, N call sites"*, *"interface shrinks; implementation absorbs the shallow modules"*. Don't write *"easier to maintain"* or *"cleaner code"*, because those terms aren't in the glossary and don't earn their place.
 
 No hedging, no throat-clearing, no "it's worth noting that…". If a sentence could be a bullet, make it a bullet. If a bullet could be cut, cut it. If a term isn't in the `/codebase-design` glossary, reach for one that is before inventing a new one.
