@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import {
   mkdirSync,
   readFileSync,
@@ -9,13 +8,9 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-export type AnalysisDepth = "quick" | "standard" | "deep";
+import { ProcessExecutionError, runProcess } from "./process.ts";
 
-type ProcessResult = {
-  exitCode: number | null;
-  stderr: string;
-  stdout: string;
-};
+export type AnalysisDepth = "quick" | "standard" | "deep";
 
 type SurveyOptions = {
   depth: AnalysisDepth;
@@ -52,6 +47,10 @@ type ChangeAmplification = {
 export type MaintenanceRiskSurvey = {
   evidence: {
     changeAmplification: ChangeAmplification[];
+    exclusions: Array<{
+      commit: string;
+      reason: "bulk-mechanical" | "huge-changeset" | "merge";
+    }>;
     hotspots: Hotspot[];
     temporalCoupling: TemporalCoupling[];
   };
@@ -97,73 +96,8 @@ const EXCLUDED_PATHS = [
   /\.generated\.[^/]+$/,
 ];
 
-const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
-
-const runProcess = async (
-  executable: string,
-  args: string[],
-  options: {
-    cwd: string;
-    signal?: AbortSignal;
-    timeoutMs: number;
-  },
-): Promise<ProcessResult> =>
-  new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(executable, args, {
-      cwd: options.cwd,
-      shell: false,
-      signal: options.signal,
-      windowsHide: true,
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let outputBytes = 0;
-    let settled = false;
-
-    const finish = (result: ProcessResult) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolvePromise(result);
-    };
-
-    const collect = (chunks: Buffer[], chunk: Buffer) => {
-      outputBytes += chunk.length;
-      if (outputBytes > MAX_OUTPUT_BYTES) {
-        child.kill();
-        rejectPromise(
-          new Error(
-            `Git output exceeded ${MAX_OUTPUT_BYTES} bytes; use a shallower depth`,
-          ),
-        );
-        return;
-      }
-      chunks.push(chunk);
-    };
-
-    child.stdout.on("data", (chunk: Buffer) => collect(stdout, chunk));
-    child.stderr.on("data", (chunk: Buffer) => collect(stderr, chunk));
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      if (settled) return;
-      settled = true;
-      rejectPromise(error);
-    });
-    child.on("close", (exitCode) =>
-      finish({
-        exitCode,
-        stderr: Buffer.concat(stderr).toString("utf8"),
-        stdout: Buffer.concat(stdout).toString("utf8"),
-      }),
-    );
-
-    const timeout = setTimeout(() => {
-      child.kill();
-      rejectPromise(
-        new Error(`Git command timed out after ${options.timeoutMs}ms`),
-      );
-    }, options.timeoutMs);
-  });
+const BULK_MECHANICAL_COMMIT =
+  /^(chore(\(.+\))?:\s*)?(format|generated?|vendor|lockfile|dependencies?|dependabot|renovate)\b/i;
 
 const runGit = async (
   executable: string,
@@ -174,7 +108,14 @@ const runGit = async (
     timeoutMs: number;
   },
 ) => {
-  const result = await runProcess(executable, args, options);
+  const result = await runProcess({
+    args,
+    cwd: options.cwd,
+    executable,
+    maxOutputBytes: 8 * 1024 * 1024,
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+  });
   if (result.exitCode !== 0) {
     throw new Error(
       result.stderr.trim() ||
@@ -224,14 +165,32 @@ const createEvidence = (
   const changes = new Map<string, Hotspot>();
   const sharedChanges = new Map<string, number>();
   const amplification: ChangeAmplification[] = [];
+  const exclusions: MaintenanceRiskSurvey["evidence"]["exclusions"] = [];
 
   for (const historyCommit of commits) {
-    if (historyCommit.parents.length > 1) continue;
+    if (historyCommit.parents.length > 1) {
+      exclusions.push({ commit: historyCommit.commit, reason: "merge" });
+      continue;
+    }
+    if (BULK_MECHANICAL_COMMIT.test(historyCommit.message)) {
+      exclusions.push({
+        commit: historyCommit.commit,
+        reason: "bulk-mechanical",
+      });
+      continue;
+    }
 
     const paths = [
       ...new Set(historyCommit.files.filter((path) => !isExcludedPath(path))),
     ].sort();
-    if (paths.length === 0 || paths.length > maxFilesPerCommit) continue;
+    if (paths.length === 0) continue;
+    if (paths.length > maxFilesPerCommit) {
+      exclusions.push({
+        commit: historyCommit.commit,
+        reason: "huge-changeset",
+      });
+      continue;
+    }
 
     amplification.push({
       commit: historyCommit.commit,
@@ -295,6 +254,7 @@ const createEvidence = (
         right.filesChanged - left.filesChanged ||
         right.date.localeCompare(left.date),
     ),
+    exclusions,
     hotspots,
     temporalCoupling,
   };
@@ -319,6 +279,7 @@ const writeEvidence = (outputPath: string, survey: MaintenanceRiskSurvey) => {
 
 const emptyEvidence = (): MaintenanceRiskSurvey["evidence"] => ({
   changeAmplification: [],
+  exclusions: [],
   hotspots: [],
   temporalCoupling: [],
 });
@@ -333,6 +294,7 @@ export const surveyMaintenanceRisk = async (
     signal: options.signal,
     timeoutMs: depth.timeoutMs,
   };
+  let survey: MaintenanceRiskSurvey;
 
   try {
     const toolVersion = (
@@ -391,7 +353,7 @@ export const surveyMaintenanceRisk = async (
       ],
       rootCommandOptions,
     );
-    const survey: MaintenanceRiskSurvey = {
+    survey = {
       evidence: createEvidence(parseHistory(history), depth.maxFilesPerCommit),
       failures: [],
       generatedAt: new Date().toISOString(),
@@ -409,11 +371,14 @@ export const surveyMaintenanceRisk = async (
       },
       status: "complete",
     };
-
-    if (options.outputPath) writeEvidence(options.outputPath, survey);
-    return survey;
   } catch (error) {
-    return {
+    if (
+      error instanceof ProcessExecutionError &&
+      error.kind === "cancelled"
+    ) {
+      throw error;
+    }
+    survey = {
       evidence: emptyEvidence(),
       failures: [
         {
@@ -439,6 +404,9 @@ export const surveyMaintenanceRisk = async (
       status: "partial",
     };
   }
+
+  if (options.outputPath) writeEvidence(options.outputPath, survey);
+  return survey;
 };
 
 const parseArguments = (args: string[]): SurveyOptions => {
@@ -448,7 +416,7 @@ const parseArguments = (args: string[]): SurveyOptions => {
     const value = args[index + 1];
     if (!key?.startsWith("--") || !value) {
       throw new Error(
-        "Usage: npm run maintenance-risk:survey -- --repo <path> --depth <quick|standard|deep> [--output <path>]",
+        "Usage: npm run maintenance-risk:survey -- --repo <path> --depth <quick|standard|deep> --output <path>",
       );
     }
     values.set(key, value);
@@ -456,26 +424,41 @@ const parseArguments = (args: string[]): SurveyOptions => {
 
   const repositoryPath = values.get("--repo");
   const depth = values.get("--depth");
+  const outputPath = values.get("--output");
   if (
     !repositoryPath ||
+    !outputPath ||
     (depth !== "quick" && depth !== "standard" && depth !== "deep")
   ) {
     throw new Error(
-      "Both --repo and --depth <quick|standard|deep> are required",
+      "--repo, --depth <quick|standard|deep>, and --output are required",
     );
   }
 
   return {
     depth,
-    outputPath: values.get("--output"),
+    outputPath,
     repositoryPath,
   };
 };
 
 if (require.main === module) {
-  surveyMaintenanceRisk(parseArguments(process.argv.slice(2)))
+  const options = parseArguments(process.argv.slice(2));
+  surveyMaintenanceRisk(options)
     .then((result) => {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            failures: result.failures,
+            hotspotCount: result.evidence.hotspots.length,
+            outputPath: resolve(options.outputPath ?? ""),
+            status: result.status,
+            temporalCouplingCount: result.evidence.temporalCoupling.length,
+          },
+          null,
+          2,
+        )}\n`,
+      );
       process.exitCode = result.status === "complete" ? 0 : 2;
     })
     .catch((error) => {

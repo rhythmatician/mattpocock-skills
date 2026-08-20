@@ -51,6 +51,10 @@ const createRepository = () => {
   writeFileSync(join(repositoryPath, "b.ts"), "export const b = 3;\n");
   commit(repositoryPath, "change pair again", "2026-01-03T00:00:00Z");
 
+  writeFileSync(join(repositoryPath, "a.ts"), "export const a = 3; \n");
+  writeFileSync(join(repositoryPath, "b.ts"), "export const b = 3; \n");
+  commit(repositoryPath, "format code", "2026-01-04T00:00:00Z");
+
   return repositoryPath;
 };
 
@@ -96,6 +100,7 @@ test("surveys maintenance risk through measured repository history", async () =>
     false,
   );
   assert.equal(result.evidence.changeAmplification[0]?.filesChanged, 2);
+  assert.equal(result.evidence.exclusions[0]?.reason, "bulk-mechanical");
 
   assert.deepEqual(JSON.parse(readFileSync(outputPath, "utf8")), result);
 });
@@ -129,4 +134,41 @@ test("reports unavailable Git as partial evidence", async () => {
   assert.equal(result.failures[0]?.capability, "git-history");
   assert.match(result.failures[0]?.message ?? "", /not available/i);
   assert.deepEqual(result.evidence.hotspots, []);
+});
+
+test("CLI writes evidence without flooding stdout", () => {
+  const repositoryPath = createRepository();
+  const outputPath = join(repositoryPath, "maintenance-risk.json");
+  const scriptPath = join(
+    process.cwd(),
+    "scripts",
+    "repository-analysis",
+    "maintenance-risk-survey.ts",
+  );
+
+  const stdout = execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      scriptPath,
+      "--repo",
+      repositoryPath,
+      "--depth",
+      "quick",
+      "--output",
+      outputPath,
+    ],
+    { encoding: "utf8" },
+  );
+  const receipt = JSON.parse(stdout) as {
+    outputPath: string;
+    status: string;
+  };
+
+  assert.equal(receipt.status, "complete");
+  assert.equal(receipt.outputPath, outputPath);
+  assert.ok(stdout.length < 1_000);
+  assert.equal("evidence" in receipt, false);
+  assert.equal(JSON.parse(readFileSync(outputPath, "utf8")).status, "complete");
 });
