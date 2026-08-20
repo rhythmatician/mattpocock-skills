@@ -1,0 +1,5 @@
+interface:
+  display_name: "Knowledge Hygiene"
+  short_description: "Audit duplicate authority and stale knowledge"
+policy:
+  allow_implicit_invocation: false
