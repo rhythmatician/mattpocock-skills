@@ -41,6 +41,8 @@ Repo name, date, and a compact legend: solid box = module, dashed line = seam, r
 
 The diagrams carry the weight. Prose is sparse, plain, and uses the glossary terms (from the `/codebase-design` skill) without ceremony.
 
+This section is the single source of truth for candidate fields. Keep the labels and order below exact so downstream health reports can consume candidates without translating free-form prose.
+
 Each candidate is one `<article>`:
 
 - **Title**: short, names the deepening (e.g. "Collapse the Order intake pipeline").
@@ -57,7 +59,7 @@ Each candidate is one `<article>`:
 - **Recommendation strength**: `Strong`, `Worth exploring`, or `Speculative`, rendered as a badge beside the dependency category (`in-process`, `local-substitutable`, `ports & adapters`, `mock`).
 - **ADR callout** (if applicable): one line in an amber-tinted box.
 
-Keep these labels and their order exact. They are the candidate contract for downstream health reports. No paragraphs of explanation. If the diagram needs a paragraph to be understood, redraw the diagram.
+No paragraphs of explanation. If the diagram needs a paragraph to be understood, redraw the diagram.
 
 ## Diagram patterns
 

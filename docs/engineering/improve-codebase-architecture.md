@@ -40,7 +40,7 @@ The skill turns on **depth**. A deep module puts a lot of behaviour behind a sma
 
 The second lens is **connascence**: the concrete knowledge that must agree across a seam, judged together with its distance. Strong coordination inside one coherent module can be healthy. The same state sequence or algorithm duplicated across distant modules is a locality candidate. Weak, explicit agreement at distance may be fine.
 
-Each card uses a stable contract: Files, Secret, Leaking agreement, Distance/locality, Caller shape, Alternative shapes considered, Refactor direction, Evidence, Benefits, Before / After diagram, and Recommendation strength. Caller shape comes first in the design reasoning: it says what an improved caller should know and do before types or interfaces are proposed. Consequential redesigns show at least two structurally distinct shapes.
+Each card follows one stable report contract so later health work can consume it without translating free-form prose. The contract keeps the secret, leaking agreement, distance, caller shape, alternatives, direction, and evidence distinct. Caller shape comes first in the design reasoning: it says what an improved caller should know and do before types or interfaces are proposed. Consequential redesigns show at least two structurally distinct shapes.
 
 | Badge | What it means for you |
 | --- | --- |

@@ -58,19 +58,7 @@ Write a self-contained HTML file to the OS temp directory so nothing lands in th
 
 The report uses **Tailwind via CDN** for layout and styling, and **Mermaid via CDN** for diagrams where a graph/flow/sequence reliably communicates the structure. Mix Mermaid with hand-crafted CSS/SVG visuals: use Mermaid when relationships are graph-shaped (call graphs, dependencies, sequences), and hand-built divs/SVG when you want something more editorial (mass diagrams, cross-sections, collapse animations). Each candidate gets a **before/after visualisation**. Be visual.
 
-For each candidate, render a card with these exact fields in this order. Keep the labels stable so later health reports can consume a candidate without translating free-form prose:
-
-- **Files**: which files/modules are involved
-- **Secret**: the decision the proposed or deepened module would hide
-- **Leaking agreement**: what callers or modules currently must know or coordinate
-- **Distance/locality**: where the participants live and whether strong coordination is kept local or spread at distance
-- **Caller shape**: what an improved caller should need to know and do, written as usage before any interface design
-- **Alternative shapes considered**: for a consequential redesign, at least two materially different structures; otherwise `Not consequential` and why
-- **Refactor direction**: how the recommended shape localizes the secret and agreement behind a smaller seam
-- **Evidence**: the traced flow and repeated friction that support the candidate, with isolated incidents identified as such
-- **Benefits**: locality, leverage, and how tests would improve
-- **Before / After diagram**: side-by-side, custom-drawn, illustrating the shallowness and the deepening
-- **Recommendation strength**: one of `Strong`, `Worth exploring`, `Speculative`, rendered as a badge
+Load the [Candidate card](HTML-REPORT.md#candidate-card) section of `HTML-REPORT.md`. It is the single source of truth for the card's required fields, exact labels, and order. A report is incomplete until every card satisfies that contract.
 
 End the report with a **Top recommendation** section: which candidate you'd tackle first and why.
 
@@ -101,5 +89,5 @@ Keep this skill on module shape. Route adjacent questions at the point they beco
 - For whether the existing suite deserves confidence before a risky refactor, call the Skill tool with "test-suite-health".
 - For conflicting definitions, duplicate authority, or stale agent guidance, tell the user to run `/knowledge-hygiene`; it is user-invoked and cannot be called by this skill.
 - For slow time-to-confidence, use `feedback-loop-health` only when it appears in the available skill list. Otherwise name the gap and keep it out of the architecture verdict.
-- For broad synthesis, tell the user to run `/codebase-health` only when it appears in the available skill list. Otherwise preserve the exact candidate fields above for that future orchestrator without claiming it is installed.
+- For broad synthesis, tell the user to run `/codebase-health` only when it appears in the available skill list. Otherwise preserve the canonical candidate contract in `HTML-REPORT.md` for that future orchestrator without claiming it is installed.
 - Turn a settled decision into permanent enforcement only when the user explicitly asks. If `architecture-guardrails` is available, tell the user to invoke it; otherwise record the decision without inventing an enforcement workflow.
