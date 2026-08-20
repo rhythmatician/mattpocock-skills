@@ -91,6 +91,10 @@ The example is intentionally partial: it omits cold evidence and several require
 
 Add `finding` only after a baseline identifies a measured bottleneck. Its reason, classification, smallest improvement, regression ratchet, and owner are interpretations supplied by the investigation. The runner attaches measured timing and provenance and labels the resulting claim `interpretation`; it never fabricates a recommendation from duration alone.
 
+The finding ID is `<scenario-id>:<stage-id>`. A finding on a scenario with `baseline: false` also supplies `baselineFindingId`, pointing to an emitted finding from a baseline scenario. Without that measured link the runner omits the recommendation from `findings`, marks `finding:<stage-id>` unavailable, and makes the comparison scenario partial.
+
+Every `evidencePaths` entry must exist after the scenario run and resolve outside the target repository. The runner keeps only valid paths in `cleanup.evidencePaths`. Missing or in-repository paths appear in `cleanup.unavailableEvidencePaths`, make cleanup partial, and become confidence boundaries.
+
 ## Normalized result
 
 The runner emits `schemaVersion: 1` and `diagnostic: feedback-loop-health` for composition by future health surveys. Each scenario preserves:
@@ -123,6 +127,7 @@ Before the human summary, emit one JSON object that keeps interpretation separat
   "findings": [
     {
       "id": "stable finding identifier",
+      "baselineFindingId": "baseline-scenario:baseline-stage when this is a comparison",
       "rank": 1,
       "scenarioId": "representative-change",
       "stageId": "reviewer-setup",
@@ -153,7 +158,13 @@ Before the human summary, emit one JSON object that keeps interpretation separat
   "confidenceBoundaries": ["What remains unknown"],
   "cleanup": {
     "status": "complete | partial",
-    "evidencePaths": ["absolute artifact path"]
+    "evidencePaths": ["validated absolute artifact path"],
+    "unavailableEvidencePaths": [
+      {
+        "path": "rejected artifact path",
+        "reason": "missing or inside the target repository"
+      }
+    ]
   }
 }
 ```

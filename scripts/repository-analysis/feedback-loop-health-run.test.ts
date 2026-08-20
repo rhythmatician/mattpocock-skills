@@ -28,12 +28,16 @@ const machineStage = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const plan = (repositoryPath: string) => ({
-  evidencePaths: [join(repositoryPath, "evidence", "scenario.json")],
-  schemaVersion: 1,
-  repositoryPath,
-  scenarios: [
-    {
+const plan = (repositoryPath: string) => {
+  const evidenceDirectory = mkdtempSync(join(tmpdir(), "feedback-loop-evidence-"));
+  const evidencePath = join(evidenceDirectory, "scenario.json");
+  writeFileSync(evidencePath, "{}\n");
+  return {
+    evidencePaths: [evidencePath],
+    schemaVersion: 1,
+    repositoryPath,
+    scenarios: [
+      {
       baseline: true,
       description: "Edit a component and obtain a reviewable state",
       grounding: {
@@ -96,9 +100,10 @@ const plan = (repositoryPath: string) => ({
           signal: "human-observable-state",
         }),
       ],
-    },
-  ],
-});
+      },
+    ],
+  };
+};
 
 test("requires a baseline before optimization evidence", () => {
   const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
@@ -139,7 +144,8 @@ test("requires an explicit verdict for an available HITL verdict stage", () => {
 
 test("normalizes machine and manual latency, conditions, and unavailable stages", async () => {
   const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
-  const result = await runFeedbackLoopPlan(plan(repositoryPath));
+  const input = plan(repositoryPath);
+  const result = await runFeedbackLoopPlan(input);
 
   assert.equal(result.schemaVersion, 1);
   assert.equal(result.diagnostic, "feedback-loop-health");
@@ -164,7 +170,7 @@ test("normalizes machine and manual latency, conditions, and unavailable stages"
   assert.equal(result.unavailableStages.some(({ stageId }) => stageId === "visual-verdict"), true);
   assert.equal(result.confidenceBoundaries.some((boundary) => /HITL verdict/i.test(boundary)), true);
   assert.equal(result.cleanup.status, "complete");
-  assert.deepEqual(result.cleanup.evidencePaths, [join(repositoryPath, "evidence", "scenario.json")]);
+  assert.deepEqual(result.cleanup.evidencePaths, input.evidencePaths);
 });
 
 test("a HITL scenario is partial when required feedback milestones are absent", async () => {
@@ -247,6 +253,136 @@ test("reports a missing cold or warm comparison instead of completing silently",
   assert.equal(result.scenarios[0]?.status, "partial");
   assert.equal(result.unavailableStages.some(({ stageId }) => stageId === "condition:cold-clean"), true);
   assert.deepEqual(result.findings, []);
+});
+
+test("does not rank a non-baseline finding without measured baseline support", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
+  const input = plan(repositoryPath);
+  const baseline = input.scenarios[0]!;
+  baseline.hitlRequired = false;
+  baseline.lifecycleApplicability = {
+    cleanup: "not-required",
+    doctor: "not-required",
+    drive: "required",
+    evidence: "not-required",
+    launch: "not-required",
+  };
+  baseline.stages = [
+    machineStage({
+      condition: "cold-clean",
+      id: "baseline-cold",
+      lifecycle: "drive",
+      repeatCount: 1,
+      signal: "automated-confidence",
+    }),
+    machineStage({
+      condition: "warm-incremental",
+      id: "baseline-warm",
+      lifecycle: "drive",
+      repeatCount: 1,
+      signal: "first-signal",
+    }),
+  ];
+  const optimization = structuredClone(baseline);
+  optimization.baseline = false;
+  optimization.id = "optimization-attempt";
+  optimization.stages[1] = machineStage({
+    condition: "warm-incremental",
+    finding: {
+      classification: "serial",
+      owner: "feedback-loop-health",
+      regressionRatchetOpportunity: "Add a focused-path budget",
+      smallestImprovement: "Separate the focused path",
+      whyItMatters: "This stage blocks adequate confidence",
+    },
+    id: "optimized-warm",
+    lifecycle: "drive",
+    repeatCount: 1,
+    signal: "first-signal",
+  });
+  input.scenarios.push(optimization);
+
+  const result = await runFeedbackLoopPlan(input);
+
+  assert.equal(result.scenarios[0]?.status, "complete");
+  assert.equal(result.scenarios[1]?.status, "partial");
+  assert.deepEqual(result.findings, []);
+  assert.equal(
+    result.unavailableStages.some(
+      ({ scenarioId, stageId }) =>
+        scenarioId === "optimization-attempt" &&
+        stageId === "finding:optimized-warm",
+    ),
+    true,
+  );
+  assert.equal(
+    result.confidenceBoundaries.some((boundary) =>
+      /measured baseline finding/i.test(boundary),
+    ),
+    true,
+  );
+});
+
+test("emits a non-baseline finding linked to measured baseline evidence", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
+  const input = plan(repositoryPath);
+  const optimization = structuredClone(input.scenarios[0]!);
+  optimization.baseline = false;
+  optimization.id = "supported-optimization";
+  optimization.stages[1] = machineStage({
+    condition: "warm-incremental",
+    finding: {
+      baselineFindingId: "component-change:test",
+      classification: "serial",
+      owner: "feedback-loop-health",
+      regressionRatchetOpportunity: "Keep the focused-path budget",
+      smallestImprovement: "Keep the independent focused path",
+      whyItMatters: "This comparison measures the same blocking stage",
+    },
+    id: "supported-warm",
+    lifecycle: "drive",
+    repeatCount: 1,
+    signal: "automated-confidence",
+  });
+  input.scenarios.push(optimization);
+
+  const result = await runFeedbackLoopPlan(input);
+
+  const finding = result.findings.find(
+    ({ id }) => id === "supported-optimization:supported-warm",
+  );
+  assert.equal(finding?.baselineFindingId, "component-change:test");
+  assert.equal(finding?.rank > 0, true);
+});
+
+test("cleanup proof excludes missing and in-repository evidence paths", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
+  const inRepositoryEvidence = join(repositoryPath, "evidence.json");
+  const missingEvidence = join(
+    mkdtempSync(join(tmpdir(), "feedback-loop-missing-")),
+    "missing.json",
+  );
+  writeFileSync(inRepositoryEvidence, "{}\n");
+  const input = plan(repositoryPath);
+  input.evidencePaths = [inRepositoryEvidence, missingEvidence];
+
+  const result = await runFeedbackLoopPlan(input);
+
+  assert.equal(result.cleanup.status, "partial");
+  assert.deepEqual(result.cleanup.evidencePaths, []);
+  assert.equal(result.cleanup.unavailableEvidencePaths.length, 2);
+  assert.equal(
+    result.cleanup.unavailableEvidencePaths.some(({ reason }) =>
+      /outside the target repository/i.test(reason),
+    ),
+    true,
+  );
+  assert.equal(
+    result.cleanup.unavailableEvidencePaths.some(({ reason }) =>
+      /does not exist/i.test(reason),
+    ),
+    true,
+  );
 });
 
 test("runs cleanup after a failed drive and preserves the failed stage", async () => {

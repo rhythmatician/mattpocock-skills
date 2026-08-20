@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 
@@ -50,6 +50,7 @@ type Stage = {
   condition: Condition;
   environment: "ci" | "local" | "other";
   finding?: {
+    baselineFindingId?: string;
     classification: FindingClassification;
     owner: FindingOwner;
     regressionRatchetOpportunity: string;
@@ -119,12 +120,17 @@ export type FeedbackLoopHealthRun = {
   cleanup: {
     evidencePaths: string[];
     status: "complete" | "partial";
+    unavailableEvidencePaths: Array<{
+      path: string;
+      reason: string;
+    }>;
   };
   confidenceBoundaries: string[];
   diagnostic: "feedback-loop-health";
   failures: Array<{ capability: "repository-state"; message: string }>;
   findings: Array<{
     claimType: "interpretation";
+    baselineFindingId?: string;
     classification: FindingClassification;
     id: string;
     measurement: {
@@ -245,6 +251,13 @@ const parseStage = (value: unknown, path: string): Stage => {
   if (value.finding !== undefined) {
     if (!isRecord(value.finding)) throw new Error(`${path}.finding must be an object`);
     stage.finding = {
+      baselineFindingId:
+        value.finding.baselineFindingId === undefined
+          ? undefined
+          : requireString(
+              value.finding.baselineFindingId,
+              `${path}.finding.baselineFindingId`,
+            ),
       classification: oneOf(
         value.finding.classification,
         ["necessary", "redundant", "unstable", "overbroad", "serial", "uncached", "local-ci-divergence", "manual-ceremony"] as const,
@@ -476,6 +489,11 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
   }
   const scenarios: FeedbackLoopHealthRun["scenarios"] = [];
   const findings: FeedbackLoopHealthRun["findings"] = [];
+  const findingCandidates: Array<{
+    baseline: boolean;
+    baselineFindingId?: string;
+    finding: FeedbackLoopHealthRun["findings"][number];
+  }> = [];
   const unavailableStages: FeedbackLoopHealthRun["unavailableStages"] = [];
   const unavailableKeys = new Set<string>();
   const addUnavailable = (scenarioId: string, stageId: string, reason: string) => {
@@ -603,33 +621,37 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
       if (result.provenance.manual) {
         provenance.push({ kind: "human-observation", ...result.provenance.manual });
       }
-      findings.push({
-        claimType: "interpretation",
-        classification: source.finding.classification,
-        id: `${scenario.id}:${result.id}`,
-        measurement: {
-          agentIdleMs:
-            result.agentWait === "blocked"
-              ? Number((result.machineDurationMs + result.manualDurationMs).toFixed(3))
-              : 0,
-          condition: result.condition,
-          environment: result.environment,
-          machineMs: result.machineDurationMs,
-          manualMs: result.manualDurationMs,
-          sampleCount:
-            result.runs.length + (result.provenance.manual ? 1 : 0),
+      findingCandidates.push({
+        baseline: scenario.baseline,
+        baselineFindingId: source.finding.baselineFindingId,
+        finding: {
+          claimType: "interpretation",
+          classification: source.finding.classification,
+          id: `${scenario.id}:${result.id}`,
+          measurement: {
+            agentIdleMs:
+              result.agentWait === "blocked"
+                ? Number((result.machineDurationMs + result.manualDurationMs).toFixed(3))
+                : 0,
+            condition: result.condition,
+            environment: result.environment,
+            machineMs: result.machineDurationMs,
+            manualMs: result.manualDurationMs,
+            sampleCount:
+              result.runs.length + (result.provenance.manual ? 1 : 0),
+          },
+          owner: source.finding.owner,
+          provenance,
+          rank: 0,
+          reason: source.finding.whyItMatters,
+          regressionRatchetOpportunity:
+            source.finding.regressionRatchetOpportunity,
+          scenarioId: scenario.id,
+          signal: result.signal,
+          smallestImprovement: source.finding.smallestImprovement,
+          stage: result.lifecycle,
+          stageId: result.id,
         },
-        owner: source.finding.owner,
-        provenance,
-        rank: 0,
-        reason: source.finding.whyItMatters,
-        regressionRatchetOpportunity:
-          source.finding.regressionRatchetOpportunity,
-        scenarioId: scenario.id,
-        signal: result.signal,
-        smallestImprovement: source.finding.smallestImprovement,
-        stage: result.lifecycle,
-        stageId: result.id,
       });
     }
 
@@ -690,6 +712,38 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
       status: incomplete ? "partial" : "complete",
     });
   }
+  const baselineFindingIds = new Set(
+    findingCandidates
+      .filter(({ baseline }) => baseline)
+      .map(({ finding }) => finding.id),
+  );
+  for (const candidate of findingCandidates) {
+    if (candidate.baseline) {
+      findings.push(candidate.finding);
+      continue;
+    }
+    if (
+      candidate.baselineFindingId &&
+      baselineFindingIds.has(candidate.baselineFindingId)
+    ) {
+      findings.push({
+        ...candidate.finding,
+        baselineFindingId: candidate.baselineFindingId,
+      });
+      continue;
+    }
+    addUnavailable(
+      candidate.finding.scenarioId,
+      `finding:${candidate.finding.stageId}`,
+      candidate.baselineFindingId
+        ? `Baseline finding ${candidate.baselineFindingId} was not measured`
+        : "A non-baseline finding requires a measured baseline finding link",
+    );
+    const scenarioResult = scenarios.find(
+      ({ id }) => id === candidate.finding.scenarioId,
+    );
+    if (scenarioResult) scenarioResult.status = "partial";
+  }
   findings
     .sort(
       (left, right) =>
@@ -700,16 +754,47 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
     .forEach((finding, index) => {
       finding.rank = index + 1;
     });
-  const cleanupStatus = scenarios.every(({ lifecycleReadiness }) => {
+  const validEvidencePaths: string[] = [];
+  const unavailableEvidencePaths: FeedbackLoopHealthRun["cleanup"]["unavailableEvidencePaths"] = [];
+  if (plan.evidencePaths.length === 0) {
+    unavailableEvidencePaths.push({
+      path: "(none)",
+      reason: "No evidence paths were declared",
+    });
+    addUnavailable(
+      "report",
+      "evidence-path:missing",
+      "No evidence paths were declared",
+    );
+  }
+  for (const [index, evidencePath] of plan.evidencePaths.entries()) {
+    const absolutePath = resolve(evidencePath);
+    let reason: string | undefined;
+    if (!existsSync(absolutePath)) {
+      reason = "Evidence path does not exist after the scenario run";
+    } else if (isPathInsideRepository(root, absolutePath)) {
+      reason = "Evidence path must be outside the target repository";
+    }
+    if (reason) {
+      unavailableEvidencePaths.push({ path: absolutePath, reason });
+      addUnavailable("report", `evidence-path:${index}`, reason);
+    } else {
+      validEvidencePaths.push(absolutePath);
+    }
+  }
+  const lifecycleCleanupComplete = scenarios.every(({ lifecycleReadiness }) => {
     const status = lifecycleReadiness.cleanup.status;
     return status === "complete" || status === "not-required";
-  })
+  });
+  const cleanupStatus =
+    lifecycleCleanupComplete && unavailableEvidencePaths.length === 0
     ? "complete"
     : "partial";
   return {
     cleanup: {
-      evidencePaths: plan.evidencePaths,
+      evidencePaths: validEvidencePaths,
       status: cleanupStatus,
+      unavailableEvidencePaths,
     },
     confidenceBoundaries: [
       ...failures.map(
@@ -728,7 +813,9 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
     scenarios,
     schemaVersion: 1,
     status:
-      failures.length === 0 && scenarios.every(({ status }) => status === "complete")
+      failures.length === 0 &&
+      cleanupStatus === "complete" &&
+      scenarios.every(({ status }) => status === "complete")
         ? "complete"
         : "partial",
     unavailableStages,
