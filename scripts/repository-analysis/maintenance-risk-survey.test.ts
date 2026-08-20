@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -77,7 +77,7 @@ test("surveys maintenance risk through measured repository history", async () =>
     outputPath,
   });
 
-  assert.equal(result.status, "complete");
+  assert.equal(result.status, "partial");
   assert.equal(result.provenance.capability, "git-history");
   assert.equal(result.provenance.depth, "quick");
   assert.equal(result.provenance.commitLimit, 50);
@@ -85,31 +85,28 @@ test("surveys maintenance risk through measured repository history", async () =>
   assert.equal(result.repository.head.length, 40);
   assert.equal(result.repository.dirty, false);
 
-  assert.deepEqual(
-    result.evidence.hotspots.slice(0, 2).map(({ path, changes }) => ({
-      path,
-      changes,
-    })),
-    [
-      { path: "a.ts", changes: 3 },
-      { path: "b.ts", changes: 3 },
-    ],
-  );
-  assert.equal(
-    result.evidence.hotspots.find(({ path }) => path === "a.ts")?.lastChanged,
-    "2026-01-03T00:00:00Z",
-  );
-  assert.deepEqual(result.evidence.temporalCoupling[0], {
+  assert.deepEqual(result.evidence.temporalCoupling.items[0], {
     paths: ["a.ts", "b.ts"],
     sharedChanges: 3,
     confidence: 1,
   });
   assert.equal(
-    result.evidence.hotspots.some(({ path }) => path === "package-lock.json"),
-    false,
+    result.evidence.changeAmplification.items[0]?.filesChanged,
+    2,
   );
-  assert.equal(result.evidence.changeAmplification[0]?.filesChanged, 2);
-  assert.equal(result.evidence.exclusions[0]?.reason, "bulk-mechanical");
+  assert.equal(
+    result.evidence.changeAmplification.items[0]?.maxPairRecurrence,
+    3,
+  );
+  assert.equal(
+    result.evidence.changeAmplification.items[0]?.recurringPairs,
+    1,
+  );
+  assert.deepEqual(
+    result.evidence.changeAmplification.items[0]?.topLevelAreas,
+    ["(root)"],
+  );
+  assert.equal(result.exclusions[0]?.reason, "bulk-mechanical");
 
   assert.deepEqual(JSON.parse(readFileSync(outputPath, "utf8")), result);
 });
@@ -142,7 +139,7 @@ test("reports unavailable Git as partial evidence", async () => {
   assert.equal(result.status, "partial");
   assert.equal(result.failures[0]?.capability, "git-history");
   assert.match(result.failures[0]?.message ?? "", /not available/i);
-  assert.deepEqual(result.evidence.hotspots, []);
+  assert.deepEqual(result.evidence.hotspots.items, []);
 });
 
 test("writes partial evidence when the target repository does not exist", async () => {
@@ -178,7 +175,7 @@ test("CLI writes evidence without flooding stdout", () => {
     "maintenance-risk-survey.ts",
   );
 
-  const stdout = execFileSync(
+  const execution = spawnSync(
     process.execPath,
     [
       "--import",
@@ -193,16 +190,18 @@ test("CLI writes evidence without flooding stdout", () => {
     ],
     { encoding: "utf8" },
   );
+  assert.equal(execution.status, 2);
+  const stdout = execution.stdout;
   const receipt = JSON.parse(stdout) as {
     outputPath: string;
     status: string;
   };
 
-  assert.equal(receipt.status, "complete");
+  assert.equal(receipt.status, "partial");
   assert.equal(receipt.outputPath, outputPath);
   assert.ok(stdout.length < 1_000);
   assert.equal("evidence" in receipt, false);
-  assert.equal(JSON.parse(readFileSync(outputPath, "utf8")).status, "complete");
+  assert.equal(JSON.parse(readFileSync(outputPath, "utf8")).status, "partial");
 });
 
 test("refuses to write audit evidence into the target repository", async () => {
@@ -271,7 +270,9 @@ test("preserves unusual Git pathnames exactly", async () => {
   });
 
   assert.equal(
-    result.evidence.hotspots.some(({ path }) => path === unusualPath),
+    result.evidence.changeAmplification.items.some(({ paths }) =>
+      paths.includes(unusualPath),
+    ),
     true,
   );
 });
@@ -292,14 +293,20 @@ test("bounds temporal coupling work and reports partial evidence", async () => {
   });
 
   assert.equal(result.status, "partial");
+  assert.equal(result.evidence.changeAmplification.status, "partial");
+  assert.equal(
+    result.failures.some(
+      ({ capability }) => capability === "change-amplification",
+    ),
+    true,
+  );
   assert.equal(
     result.failures.some(
       ({ capability }) => capability === "temporal-coupling",
     ),
     true,
   );
-  assert.equal(result.evidence.hotspots.length, 205);
-  assert.ok(result.evidence.temporalCoupling.length <= 20_000);
+  assert.ok(result.evidence.temporalCoupling.items.length <= 20_000);
 });
 
 test("reports partial evidence when coupling result ranking is truncated", async () => {
@@ -317,11 +324,45 @@ test("reports partial evidence when coupling result ranking is truncated", async
     depth: "quick",
   });
 
-  assert.equal(result.evidence.temporalCoupling.length, 1_000);
+  assert.equal(result.evidence.temporalCoupling.items.length, 1_000);
   assert.equal(result.status, "partial");
   assert.equal(
     result.failures.some(
       ({ capability }) => capability === "temporal-coupling",
+    ),
+    true,
+  );
+});
+
+test("marks all recurrence evidence bounded when the global pair limit is reached", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "maintenance-risk-limit-"));
+  git(repositoryPath, "init");
+  git(repositoryPath, "config", "user.email", "tests@example.com");
+  git(repositoryPath, "config", "user.name", "Tests");
+  for (let index = 0; index < 46; index += 1) {
+    writeFileSync(join(repositoryPath, `file-${index}.ts`), "0\n");
+  }
+  commit(repositoryPath, "initial pair set", "2026-01-01T00:00:00Z");
+  for (let revision = 1; revision <= 20; revision += 1) {
+    for (let index = 0; index < 46; index += 1) {
+      writeFileSync(join(repositoryPath, `file-${index}.ts`), `${revision}\n`);
+    }
+    commit(
+      repositoryPath,
+      `pair revision ${revision}`,
+      `2026-01-${String(revision + 1).padStart(2, "0")}T00:00:00Z`,
+    );
+  }
+
+  const result = await surveyMaintenanceRisk({
+    repositoryPath,
+    depth: "quick",
+  });
+
+  assert.equal(result.evidence.changeAmplification.status, "partial");
+  assert.equal(
+    result.evidence.changeAmplification.items.every(
+      ({ pairRecurrenceStatus }) => pairRecurrenceStatus === "bounded",
     ),
     true,
   );
@@ -336,7 +377,7 @@ test("large tracked changes do not discard usable history evidence", async () =>
     depth: "quick",
   });
 
-  assert.equal(result.status, "complete");
+  assert.equal(result.status, "partial");
   assert.equal(result.repository.dirty, true);
-  assert.ok(result.evidence.hotspots.length > 0);
+  assert.ok(result.evidence.changeAmplification.items.length > 0);
 });

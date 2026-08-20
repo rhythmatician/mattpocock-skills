@@ -7,23 +7,42 @@ import {
 import { runGit } from "./git.ts";
 import { ProcessExecutionError } from "./process.ts";
 import { readRepositoryState } from "./repository-state.ts";
+import {
+  type AnalyzerAdapter,
+  type AnalyzerFailure,
+  type AnalysisDepth,
+  collectStaticEvidence,
+  createOmenAdapter,
+  type EvidenceProvenance,
+  type EvidenceSet,
+  type MaintenanceHotspot,
+  type CognitiveComplexityFinding,
+  type DeadArchitectureCandidate,
+  type DependencyPathology,
+} from "./maintenance-risk-analyzers.ts";
 
-export type AnalysisDepth = "quick" | "standard" | "deep";
+export type { AnalyzerAdapter, AnalysisDepth };
 
 type SurveyOptions = {
+  analyzerAdapters?: AnalyzerAdapter[];
   depth: AnalysisDepth;
   gitExecutable?: string;
+  omenExecutable?: string;
   outputPath?: string;
   repositoryPath: string;
   signal?: AbortSignal;
 };
 
 type Failure = {
-  capability: "git-history" | "temporal-coupling";
+  capability:
+    | AnalyzerFailure["capability"]
+    | "change-amplification"
+    | "git-history"
+    | "temporal-coupling";
   message: string;
 };
 
-type Hotspot = {
+type Churn = {
   changes: number;
   lastChanged: string;
   path: string;
@@ -39,19 +58,27 @@ type ChangeAmplification = {
   commit: string;
   date: string;
   filesChanged: number;
+  maxPairRecurrence: number;
+  pairRecurrenceStatus: "bounded" | "measured";
   paths: string[];
+  recurringPairs: number;
+  topLevelAreas: string[];
 };
 
 export type MaintenanceRiskSurvey = {
+  diagnostic: "maintenance-risk";
   evidence: {
-    changeAmplification: ChangeAmplification[];
-    exclusions: Array<{
-      commit: string;
-      reason: "bulk-mechanical" | "huge-changeset" | "merge";
-    }>;
-    hotspots: Hotspot[];
-    temporalCoupling: TemporalCoupling[];
+    changeAmplification: EvidenceSet<ChangeAmplification>;
+    cognitiveComplexity: EvidenceSet<CognitiveComplexityFinding>;
+    deadArchitecture: EvidenceSet<DeadArchitectureCandidate>;
+    dependencyPathology: EvidenceSet<DependencyPathology>;
+    hotspots: EvidenceSet<MaintenanceHotspot>;
+    temporalCoupling: EvidenceSet<TemporalCoupling>;
   };
+  exclusions: Array<{
+    commit: string;
+    reason: "bulk-mechanical" | "huge-changeset" | "merge";
+  }>;
   failures: Failure[];
   generatedAt: string;
   provenance: {
@@ -66,6 +93,7 @@ export type MaintenanceRiskSurvey = {
     root: string;
     stateId: string;
   };
+  schemaVersion: 1;
   status: "complete" | "partial";
 };
 
@@ -175,6 +203,12 @@ const parseHistory = (output: string): HistoryCommit[] =>
 const isExcludedPath = (path: string) =>
   EXCLUDED_PATHS.some((pattern) => pattern.test(path.replaceAll("\\", "/")));
 
+const topLevelArea = (path: string) => {
+  const normalized = path.replaceAll("\\", "/");
+  const separator = normalized.indexOf("/");
+  return separator === -1 ? "(root)" : normalized.slice(0, separator);
+};
+
 const createEvidence = (
   commits: HistoryCommit[],
   limits: Pick<
@@ -185,14 +219,21 @@ const createEvidence = (
     | "maxPairObservations"
   >,
 ): {
+  amplificationLimited: boolean;
   couplingLimited: boolean;
-  evidence: MaintenanceRiskSurvey["evidence"];
+  evidence: {
+    changeAmplification: ChangeAmplification[];
+    churn: Churn[];
+    exclusions: MaintenanceRiskSurvey["exclusions"];
+    temporalCoupling: TemporalCoupling[];
+  };
 } => {
-  const changes = new Map<string, Hotspot>();
+  const changes = new Map<string, Churn>();
   const sharedChanges = new Map<string, number>();
   const amplification: ChangeAmplification[] = [];
-  const exclusions: MaintenanceRiskSurvey["evidence"]["exclusions"] = [];
+  const exclusions: MaintenanceRiskSurvey["exclusions"] = [];
   let couplingLimited = false;
+  let pairObservationLimitReached = false;
   let pairObservations = 0;
 
   for (const historyCommit of commits) {
@@ -224,7 +265,14 @@ const createEvidence = (
       commit: historyCommit.commit,
       date: historyCommit.date,
       filesChanged: paths.length,
+      maxPairRecurrence: 0,
+      pairRecurrenceStatus:
+        paths.length > limits.maxCouplingFilesPerCommit
+          ? "bounded"
+          : "measured",
       paths,
+      recurringPairs: 0,
+      topLevelAreas: [...new Set(paths.map(topLevelArea))].sort(),
     });
 
     for (const path of paths) {
@@ -246,6 +294,7 @@ const createEvidence = (
       for (let right = left + 1; right < paths.length; right += 1) {
         if (pairObservations >= limits.maxPairObservations) {
           couplingLimited = true;
+          pairObservationLimitReached = true;
           pairLimitReached = true;
           break;
         }
@@ -260,7 +309,7 @@ const createEvidence = (
     }
   }
 
-  const hotspots = [...changes.values()].sort(
+  const churn = [...changes.values()].sort(
     (left, right) =>
       right.changes - left.changes || left.path.localeCompare(right.path),
   );
@@ -291,8 +340,33 @@ const createEvidence = (
   if (temporalCoupling.length > limits.maxCouplingResults) {
     couplingLimited = true;
   }
+  if (pairObservationLimitReached) {
+    for (const change of amplification) {
+      change.pairRecurrenceStatus = "bounded";
+    }
+  }
+  for (const change of amplification) {
+    if (change.pairRecurrenceStatus === "bounded") continue;
+    for (let left = 0; left < change.paths.length; left += 1) {
+      for (let right = left + 1; right < change.paths.length; right += 1) {
+        const leftPath = change.paths[left];
+        const rightPath = change.paths[right];
+        if (!leftPath || !rightPath) continue;
+        const recurrence =
+          sharedChanges.get(`${leftPath}\x00${rightPath}`) ?? 0;
+        if (recurrence > 1) change.recurringPairs += 1;
+        change.maxPairRecurrence = Math.max(
+          change.maxPairRecurrence,
+          recurrence,
+        );
+      }
+    }
+  }
 
   return {
+    amplificationLimited: amplification.some(
+      ({ pairRecurrenceStatus }) => pairRecurrenceStatus === "bounded",
+    ),
     couplingLimited,
     evidence: {
       changeAmplification: amplification.sort(
@@ -300,18 +374,28 @@ const createEvidence = (
           right.filesChanged - left.filesChanged ||
           right.date.localeCompare(left.date),
       ),
+      churn,
       exclusions,
-      hotspots,
       temporalCoupling: temporalCoupling.slice(0, limits.maxCouplingResults),
     },
   };
 };
 
-const emptyEvidence = (): MaintenanceRiskSurvey["evidence"] => ({
-  changeAmplification: [],
-  exclusions: [],
-  hotspots: [],
-  temporalCoupling: [],
+const unavailableEvidence = <T>(): EvidenceSet<T> => ({
+  items: [],
+  provenance: [],
+  status: "unavailable",
+});
+
+const gitProvenance = (
+  command: string,
+  toolVersion: string,
+): EvidenceProvenance => ({
+  analyzer: "git",
+  command,
+  evidenceStrength: { basis: "executed-analysis", level: 4 },
+  source: command,
+  toolVersion,
 });
 
 export const surveyMaintenanceRisk = async (
@@ -363,17 +447,43 @@ export const surveyMaintenanceRisk = async (
       rootCommandOptions,
     );
     const analysis = createEvidence(parseHistory(history), depth);
-    const failures: Failure[] = analysis.couplingLimited
-      ? [
-          {
-            capability: "temporal-coupling",
-            message:
-              "Temporal coupling was bounded by the selected depth; hotspot and change-amplification evidence remain complete for analyzed commits",
-          },
-        ]
-      : [];
+    const failures: Failure[] = [];
+    if (analysis.couplingLimited) {
+      failures.push({
+        capability: "temporal-coupling",
+        message: "Temporal coupling was bounded by the selected depth",
+      });
+    }
+    if (analysis.amplificationLimited) {
+      failures.push({
+        capability: "change-amplification",
+        message:
+          "Recurring co-change measurements were bounded for some change-amplification observations",
+      });
+    }
+    const historyProvenance = gitProvenance("git log --name-status", toolVersion);
     survey = {
-      evidence: analysis.evidence,
+      diagnostic: "maintenance-risk",
+      evidence: {
+        changeAmplification: {
+          items: analysis.evidence.changeAmplification,
+          provenance: [historyProvenance],
+          status: analysis.amplificationLimited ? "partial" : "complete",
+        },
+        cognitiveComplexity: unavailableEvidence(),
+        deadArchitecture: unavailableEvidence(),
+        dependencyPathology: unavailableEvidence(),
+        hotspots: unavailableEvidence(),
+        temporalCoupling: {
+          items: analysis.evidence.temporalCoupling,
+          provenance: [historyProvenance],
+          status:
+            analysis.couplingLimited || analysis.amplificationLimited
+              ? "partial"
+              : "complete",
+        },
+      },
+      exclusions: analysis.evidence.exclusions,
       failures,
       generatedAt: new Date().toISOString(),
       provenance: {
@@ -388,7 +498,11 @@ export const surveyMaintenanceRisk = async (
         root,
         stateId: repositoryState.stateId,
       },
-      status: analysis.couplingLimited ? "partial" : "complete",
+      schemaVersion: 1,
+      status:
+        analysis.couplingLimited || analysis.amplificationLimited
+          ? "partial"
+          : "complete",
     };
   } catch (error) {
     if (
@@ -398,7 +512,16 @@ export const surveyMaintenanceRisk = async (
       throw error;
     }
     survey = {
-      evidence: emptyEvidence(),
+      diagnostic: "maintenance-risk",
+      evidence: {
+        changeAmplification: unavailableEvidence(),
+        cognitiveComplexity: unavailableEvidence(),
+        deadArchitecture: unavailableEvidence(),
+        dependencyPathology: unavailableEvidence(),
+        hotspots: unavailableEvidence(),
+        temporalCoupling: unavailableEvidence(),
+      },
+      exclusions: [],
       failures: [
         {
           capability: "git-history",
@@ -420,8 +543,30 @@ export const surveyMaintenanceRisk = async (
         root: resolve(options.repositoryPath),
         stateId: "unknown",
       },
+      schemaVersion: 1,
       status: "partial",
     };
+  }
+
+  const staticEvidence = await collectStaticEvidence({
+    analyzerAdapters:
+      options.analyzerAdapters ??
+      [createOmenAdapter(options.omenExecutable ?? "omen")],
+    depth: options.depth,
+    repositoryPath: survey.repository.root,
+    signal: options.signal,
+  });
+  survey.evidence.cognitiveComplexity = staticEvidence.cognitiveComplexity;
+  survey.evidence.deadArchitecture = staticEvidence.deadArchitecture;
+  survey.evidence.dependencyPathology = staticEvidence.dependencyPathology;
+  survey.evidence.hotspots = staticEvidence.hotspots;
+  survey.failures.push(...staticEvidence.failures);
+  if (
+    Object.values(survey.evidence).some(
+      ({ status }) => status !== "complete",
+    )
+  ) {
+    survey.status = "partial";
   }
 
   if (options.outputPath) {
@@ -476,10 +621,11 @@ if (require.main === module) {
         `${JSON.stringify(
           {
             failures: result.failures,
-            hotspotCount: result.evidence.hotspots.length,
+            hotspotCount: result.evidence.hotspots.items.length,
             outputPath: resolve(options.outputPath ?? ""),
             status: result.status,
-            temporalCouplingCount: result.evidence.temporalCoupling.length,
+            temporalCouplingCount:
+              result.evidence.temporalCoupling.items.length,
           },
           null,
           2,
