@@ -1,7 +1,6 @@
 ---
 name: improve-codebase-architecture
-description: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
-disable-model-invocation: true
+description: Architecture health perspective for codebase-health. Direct invocation scans for deepening opportunities, presents a visual HTML report, then grills through the chosen candidate.
 ---
 
 # Improve Codebase Architecture
@@ -12,6 +11,18 @@ This command is _informed_ by the project's domain model and built on a shared d
 
 - Call the Skill tool with "codebase-design" for the architecture vocabulary (**module**, **interface**, **depth**, **seam**, **adapter**, **leverage**, **locality**) and its principles (the deletion test, "the interface is the test surface", "one adapter = hypothetical seam, two = real"). Use these terms exactly in every suggestion, and don't drift into "component," "service," "API," or "boundary."
 - The domain language in `CONTEXT.md` gives names to good seams; ADRs in `docs/adr/` record decisions this command should not re-litigate.
+
+## Codebase-health child mode
+
+When `codebase-health` calls this skill as its architecture lens, keep the lens independent and read-only:
+
+1. Use the snapshot, depth, intent, evidence inventory, and normalized return contract supplied by the parent.
+2. Run the grounding and candidate-qualification work in steps 1 and 2 below. At `quick` depth, bound grounding to the hottest or user-nominated subsystem. At `standard` and `deep`, widen only where another traced path could change the priority judgment.
+3. Reuse matching maintenance and test evidence as nomination context, without accepting another lens's interpretation. Trace the subsystem from trigger to outcome before making an architectural claim.
+4. Return structured candidates in the parent's contract. Include the module secret, leaking agreement, caller shape, cohesion gate, deletion test, alternatives considered, source locations, confidence limits, and one focused next action.
+5. Stop before the HTML report and grilling loop. Those remain the direct user flow after the orchestrator recommends a structural candidate.
+
+Health-lens mode is complete when every returned candidate is grounded, every rejected candidate is recorded as cleared, and missing architectural context is an explicit capability gap.
 
 ## Process
 

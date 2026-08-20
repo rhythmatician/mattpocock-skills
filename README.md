@@ -198,10 +198,10 @@ Skills I use daily for code work.
 **User-invoked**
 
 - **[ask-matt](./skills/engineering/ask-matt/SKILL.md)**: Ask which skill or flow fits your situation. A router over the user-invoked skills in this repo.
+- **[codebase-health](./skills/engineering/codebase-health/SKILL.md)**: Orchestrate five independent repository-health perspectives, prioritize what matters, and route the next focused investigation.
 - **[grill-with-docs](./skills/engineering/grill-with-docs/SKILL.md)**: Grilling session that also builds your project's domain model, sharpening terminology and updating `CONTEXT.md` and ADRs inline.
 - **[domain-architect-interrogator](./skills/engineering/domain-architect-interrogator/SKILL.md)**: Interrogate the domain expert (you) about a product design as a senior architect: sea-level goals, ubiquitous language, boundary stress tests, with implementation mechanics firmly black-boxed.
 - **[triage](./skills/engineering/triage/SKILL.md)**: Move issues through a state machine of triage roles.
-- **[improve-codebase-architecture](./skills/engineering/improve-codebase-architecture/SKILL.md)**: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
 - **[setup-matt-pocock-skills](./skills/engineering/setup-matt-pocock-skills/SKILL.md)**: Configure this repo for the engineering skills (issue tracker, triage labels, domain doc layout). Run once per repo before using the other engineering skills.
 - **[to-spec](./skills/engineering/to-spec/SKILL.md)**: Turn the current conversation into a spec and publish it to the issue tracker. No interview, just synthesizes what you've already discussed.
 - **[to-tickets](./skills/engineering/to-tickets/SKILL.md)**: Break any plan, spec, or conversation into a set of tracer-bullet tickets, each declaring its blocking edges, written as text in a local file, or as native blocking links on a real tracker.
@@ -213,6 +213,7 @@ Skills I use daily for code work.
 - **[prototype](./skills/engineering/prototype/SKILL.md)**: Build a throwaway prototype to answer a design question, either a single shareable HTML file for state/logic questions, or several radically different UI variations toggleable from one route.
 - **[diagnosing-bugs](./skills/engineering/diagnosing-bugs/SKILL.md)**: Disciplined diagnosis loop for hard bugs and performance regressions: build a feedback loop that goes red on this bug → minimise → hypothesise → instrument → fix → regression-test.
 - **[research](./skills/engineering/research/SKILL.md)**: Investigate a question against high-trust primary sources and capture the findings as a cited Markdown file in the repo, run as a background agent.
+- **[improve-codebase-architecture](./skills/engineering/improve-codebase-architecture/SKILL.md)**: Supply the architecture lens for `codebase-health`; direct invocation presents grounded deepening candidates in an HTML report, then grills the one you pick.
 - **[knowledge-hygiene](./skills/engineering/knowledge-hygiene/SKILL.md)**: Audit duplicate authority, stale repository knowledge, conflicting agent instructions, and code/doc source-of-truth splits without rewriting suspected duplicates.
 - **[feedback-loop-health](./skills/engineering/feedback-loop-health/SKILL.md)**: Measure end-to-end time from an edit to trustworthy automated or human feedback, then identify the stages that dominate the wait.
 - **[maintenance-risk](./skills/engineering/maintenance-risk/SKILL.md)**: Find empirical maintenance hotspots through deterministic history, complexity, dependency, and dead-architecture evidence.

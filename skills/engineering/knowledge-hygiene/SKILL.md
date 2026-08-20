@@ -1,7 +1,6 @@
 ---
 name: knowledge-hygiene
-description: Audit repository knowledge for duplicate authority, stale or stateful documentation, conflicting agent instructions, orphan artifacts, and code/doc source-of-truth splits. Use when cleaning repository memory, reconciling competing sources of truth, reviewing stale docs, or preparing a repository for reliable agent use. Ordinary collections of Markdown or similar prose are outside scope.
-disable-model-invocation: true
+description: Repository-knowledge health perspective for codebase-health. Direct invocation audits duplicate authority, stale guidance, orphan artifacts, and code/doc source-of-truth splits without rewriting them.
 ---
 
 # Knowledge Hygiene
@@ -9,6 +8,14 @@ disable-model-invocation: true
 Audit whether the repository has one coherent account of reality or several independently maintained accounts. The unit of concern is **authority**, not matching text: two artifacts can use different words while both claiming to define the same fact, rule, mapping, invariant, workflow, term, or current state.
 
 This is a review. Collect evidence, classify each candidate, and recommend the smallest consolidation or deprecation move. Similarity alone never justifies rewriting or deleting an artifact.
+
+## Codebase-health child mode
+
+When `codebase-health` calls this skill as its knowledge lens, use the snapshot, depth, intent, evidence inventory, and normalized return contract supplied by the parent. Keep the audit independent of sibling conclusions. Reuse matching deterministic artifacts as candidate sources, then apply the authority tests below yourself.
+
+Map findings into the parent's structured contract inside this context. Preserve the concept, every location, direct evidence, inference, contradictions, authority status, confidence limits, and smallest next action. Classify dismissed candidates under `cleared`. At `quick` depth, inspect declared authorities, agent instructions, durable state, and obvious code/doc splits. At deeper levels, widen history and semantic candidate generation only where it can change priority.
+
+Stop after the read-only audit. Remediation remains separately approved work.
 
 ## 1. Map the repository's authority model
 
