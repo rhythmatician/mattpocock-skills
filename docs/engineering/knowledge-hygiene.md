@@ -23,7 +23,11 @@ Several Markdown files are not, by themselves, a reason to run it. Reach for it 
 
 The audit first learns the repository's own authority model. A code schema might be canonical, an API table might be generated from it, a guide might explain it, and an ADR might preserve its history. Those four artifacts can agree without being four sources of truth because their roles and dependency direction are explicit.
 
-The failure is **duplicate authority**: two independently maintained places that readers can reasonably treat as defining the same concept, rule, mapping, invariant, workflow, or current state. The skill uses exact and semantic searches, Git history, issue state, orphan detection, and an existing Graphify graph to generate candidates. Each candidate still needs direct evidence before it becomes a finding.
+The failure is **duplicate authority**: two independently maintained places that are **empowered by the repository's authority model** to define the same current truth. "Looks current or binding" is not sufficient. Current-sounding legacy or unadmitted prose that lacks such empowerment is **authority-shaped debt** — classify it as such rather than as duplicate authority.
+
+**Supersession is decided by proposition, not ancestry.** A current contract is not stale merely because a rule originated under a superseded ADR. Compare the actual proposition against the successor or current authority.
+
+The skill uses exact and semantic searches, Git history, issue state, orphan detection, and an existing Graphify graph to generate candidates. Each candidate still needs direct evidence before it becomes a finding.
 
 ## What the report shows
 
@@ -58,6 +62,9 @@ No. The audit discovers declared roles and conventions from the repository itsel
 - Every finding cites why each location appears authoritative, not merely that two passages look alike.
 - Direct evidence and inference appear separately, with silent history reported as a gap.
 - Harmless generated or explanatory duplication is classified and dismissed rather than reported as competing authority.
+- Authority-shaped debt is distinguished from confirmed duplicate authority.
+- Supersession is evaluated by proposition, not by ADR ancestry.
+- Remediation does not introduce synchronization debt (no per-entry or line-number backlinks unless granular provenance solves a demonstrated ambiguity with generation or validation).
 - No file is rewritten or deleted until remediation is separately approved.
 
 ## Where it fits

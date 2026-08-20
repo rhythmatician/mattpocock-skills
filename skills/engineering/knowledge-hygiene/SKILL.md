@@ -1,6 +1,7 @@
 ---
 name: knowledge-hygiene
 description: Audit repository knowledge for duplicate authority, stale or stateful documentation, conflicting agent instructions, orphan artifacts, and code/doc source-of-truth splits. Use when cleaning repository memory, reconciling competing sources of truth, reviewing stale docs, or preparing a repository for reliable agent use. Ordinary collections of Markdown or similar prose are outside scope.
+disable-model-invocation: true
 ---
 
 # Knowledge Hygiene
@@ -60,7 +61,9 @@ For each candidate, answer:
 6. What remains inference because the record is silent?
 7. Do the locations actually contradict, or do they merely overlap?
 
-Confirm duplicate authority only when at least two independently maintained locations appear empowered to define the same thing. Otherwise classify the candidate as suspected, intentional projection, generated output, explanation, historical record, temporary state, or not a problem.
+Confirm **duplicate authority** only when at least two independently maintained locations are **empowered by the repository's authority model** to define the same current truth. "Looks current or binding" is not sufficient. Current-sounding legacy or unadmitted prose that lacks such empowerment is **authority-shaped debt** — classify it as such rather than as duplicate authority.
+
+**Supersession is decided by proposition, not ancestry.** A current contract is not stale merely because a rule originated under a superseded ADR. Compare the actual proposition against the successor or current authority.
 
 Code shape can establish current mechanics, but it does not establish historical intent. Never retrofit a rationale or a supersession story that the record does not contain.
 
@@ -83,6 +86,8 @@ If no candidate clears the evidence bar, say so and list the surfaces searched. 
 ## Structural follow-through
 
 When the same correction has recurred, recommend the strongest feasible authority mechanism: an unrepresentable or derived relationship, generated output, schema, lint or CI check, canonical helper, runtime validation, then prose as the last resort. Settle the underlying rule before proposing enforcement. If a model-invoked skill named `architecture-guardrails` is available, call the Skill tool with `architecture-guardrails` for durable architectural constraints only after the rule is settled.
+
+**Do not create synchronization debt as remediation.** A derived or explanatory artifact with clear deference normally needs no change or one stable source pointer. Explicitly discourage per-entry or line-number backlinks unless granular provenance solves a demonstrated ambiguity, preferably with generation or validation.
 
 ## Safety
 
