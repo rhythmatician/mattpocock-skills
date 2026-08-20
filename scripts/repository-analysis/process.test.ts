@@ -21,6 +21,18 @@ test("passes arguments without shell interpretation", async () => {
   assert.equal(result.exitCode, 0);
 });
 
+test("passes an explicit environment to child processes", async () => {
+  const result = await runProcess({
+    args: ["-e", 'process.stdout.write(process.env.TEST_HEALTH_SEED ?? "")'],
+    cwd: process.cwd(),
+    env: { ...process.env, TEST_HEALTH_SEED: "seed-42" },
+    executable: process.execPath,
+    timeoutMs: 1_000,
+  });
+
+  assert.equal(result.stdout, "seed-42");
+});
+
 test("bounds long-running commands with a timeout", async () => {
   await assert.rejects(
     runProcess({

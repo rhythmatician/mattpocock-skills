@@ -27,6 +27,7 @@ Model- or user-reachable (rich trigger phrasing so the model can reach for them)
 - **[research](./research/SKILL.md)**: Investigate a question against high-trust primary sources and capture the findings as a cited Markdown file in the repo, run as a background agent.
 - **[knowledge-hygiene](./knowledge-hygiene/SKILL.md)**: Audit duplicate authority, stale repository knowledge, conflicting agent instructions, and code/doc source-of-truth splits without rewriting suspected duplicates.
 - **[tdd](./tdd/SKILL.md)**: Test-driven development with a red-green-refactor loop. Builds features or fixes bugs one vertical slice at a time.
+- **[test-suite-health](./test-suite-health/SKILL.md)**: Audit whether an existing test suite deserves confidence through cheap diagnostics, focused resilience and state checks, and optional targeted mutation.
 - **[domain-modeling](./domain-modeling/SKILL.md)**: Actively build and sharpen a project's domain model by challenging terms, stress-testing with scenarios, and updating `CONTEXT.md` and ADRs inline.
 - **[codebase-design](./codebase-design/SKILL.md)**: Shared discipline and vocabulary for designing deep modules: small interfaces, clean seams, testable through the interface.
 - **[code-review](./code-review/SKILL.md)**: Two-axis review of the diff since a fixed point: **Standards** (does it follow the repo's coding standards, plus a Fowler smell baseline?) and **Spec** (does it faithfully implement the originating issue/spec?), run as parallel sub-agents.

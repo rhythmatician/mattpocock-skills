@@ -13,6 +13,8 @@
     "version": "changeset version && node scripts/sync-plugin-version.mjs",
     "check-plugin-version": "node scripts/sync-plugin-version.mjs --check",
     "maintenance-risk:survey": "tsx scripts/repository-analysis/maintenance-risk-survey.ts",
+    "test-suite-health:run": "tsx scripts/repository-analysis/test-suite-health-run.ts",
+    "test-suite-health:survey": "tsx scripts/repository-analysis/test-suite-health-survey.ts",
     "test": "node --import tsx --test scripts/repository-analysis/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
