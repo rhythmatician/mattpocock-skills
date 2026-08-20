@@ -1,12 +1,22 @@
 import { createHash } from "node:crypto";
 import {
+  existsSync,
+  lstatSync,
   mkdirSync,
-  readFileSync,
+  realpathSync,
+  readlinkSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 import { ProcessExecutionError, runProcess } from "./process.ts";
 
@@ -21,7 +31,7 @@ type SurveyOptions = {
 };
 
 type Failure = {
-  capability: "git-history";
+  capability: "git-history" | "temporal-coupling";
   message: string;
 };
 
@@ -81,11 +91,39 @@ type HistoryCommit = {
 
 const DEPTHS: Record<
   AnalysisDepth,
-  { commitLimit: number; maxFilesPerCommit: number; timeoutMs: number }
+  {
+    commitLimit: number;
+    maxCouplingFilesPerCommit: number;
+    maxCouplingResults: number;
+    maxFilesPerCommit: number;
+    maxPairObservations: number;
+    timeoutMs: number;
+  }
 > = {
-  quick: { commitLimit: 50, maxFilesPerCommit: 200, timeoutMs: 5_000 },
-  standard: { commitLimit: 250, maxFilesPerCommit: 500, timeoutMs: 20_000 },
-  deep: { commitLimit: 1_000, maxFilesPerCommit: 2_000, timeoutMs: 60_000 },
+  quick: {
+    commitLimit: 50,
+    maxCouplingFilesPerCommit: 50,
+    maxCouplingResults: 1_000,
+    maxFilesPerCommit: 200,
+    maxPairObservations: 20_000,
+    timeoutMs: 5_000,
+  },
+  standard: {
+    commitLimit: 250,
+    maxCouplingFilesPerCommit: 100,
+    maxCouplingResults: 5_000,
+    maxFilesPerCommit: 500,
+    maxPairObservations: 100_000,
+    timeoutMs: 20_000,
+  },
+  deep: {
+    commitLimit: 1_000,
+    maxCouplingFilesPerCommit: 200,
+    maxCouplingResults: 20_000,
+    maxFilesPerCommit: 2_000,
+    maxPairObservations: 500_000,
+    timeoutMs: 60_000,
+  },
 };
 
 const EXCLUDED_PATHS = [
@@ -126,46 +164,74 @@ const runGit = async (
 };
 
 const parseHistory = (output: string): HistoryCommit[] =>
-  output
-    .split("\x1e")
-    .map((record) => record.trim())
-    .filter(Boolean)
-    .flatMap((record) => {
-      const [header, ...fileLines] = record.split(/\r?\n/);
-      if (!header) return [];
-      const [commit, date, message, parents = ""] = header.split("\x1f");
-      if (!commit || !date || message === undefined) return [];
+  (() => {
+    const commits: HistoryCommit[] = [];
+    const tokens = output.split("\x00");
+    let index = 0;
 
-      const files = fileLines.flatMap((line) => {
-        const fields = line.split("\t");
-        const status = fields[0];
-        if (!status) return [];
-        if (status.startsWith("R") && fields[2]) return [fields[2]];
-        return fields[1] ? [fields[1]] : [];
+    while (index < tokens.length) {
+      const marker = tokens[index]?.replace(/^\r?\n/, "");
+      index += 1;
+      if (marker !== "H") continue;
+
+      const commit = tokens[index];
+      const date = tokens[index + 1];
+      const message = tokens[index + 2];
+      const parents = tokens[index + 3] ?? "";
+      index += 4;
+      if (!commit || !date || message === undefined) continue;
+
+      const files: string[] = [];
+      while (index < tokens.length) {
+        const status = tokens[index]?.replace(/^\r?\n/, "");
+        if (status === "H") break;
+        index += 1;
+        if (!status) continue;
+        if (status.startsWith("R") || status.startsWith("C")) {
+          const newPath = tokens[index + 1];
+          index += 2;
+          if (newPath) files.push(newPath);
+          continue;
+        }
+        const path = tokens[index];
+        index += 1;
+        if (path) files.push(path);
+      }
+
+      commits.push({
+        commit,
+        date,
+        files,
+        message,
+        parents: parents.split(" ").filter(Boolean),
       });
+    }
 
-      return [
-        {
-          commit,
-          date,
-          files,
-          message,
-          parents: parents.split(" ").filter(Boolean),
-        },
-      ];
-    });
+    return commits;
+  })();
 
 const isExcludedPath = (path: string) =>
   EXCLUDED_PATHS.some((pattern) => pattern.test(path.replaceAll("\\", "/")));
 
 const createEvidence = (
   commits: HistoryCommit[],
-  maxFilesPerCommit: number,
-): MaintenanceRiskSurvey["evidence"] => {
+  limits: Pick<
+    (typeof DEPTHS)[AnalysisDepth],
+    | "maxCouplingFilesPerCommit"
+    | "maxCouplingResults"
+    | "maxFilesPerCommit"
+    | "maxPairObservations"
+  >,
+): {
+  couplingLimited: boolean;
+  evidence: MaintenanceRiskSurvey["evidence"];
+} => {
   const changes = new Map<string, Hotspot>();
   const sharedChanges = new Map<string, number>();
   const amplification: ChangeAmplification[] = [];
   const exclusions: MaintenanceRiskSurvey["evidence"]["exclusions"] = [];
+  let couplingLimited = false;
+  let pairObservations = 0;
 
   for (const historyCommit of commits) {
     if (historyCommit.parents.length > 1) {
@@ -184,7 +250,7 @@ const createEvidence = (
       ...new Set(historyCommit.files.filter((path) => !isExcludedPath(path))),
     ].sort();
     if (paths.length === 0) continue;
-    if (paths.length > maxFilesPerCommit) {
+    if (paths.length > limits.maxFilesPerCommit) {
       exclusions.push({
         commit: historyCommit.commit,
         reason: "huge-changeset",
@@ -208,14 +274,27 @@ const createEvidence = (
       });
     }
 
+    if (paths.length > limits.maxCouplingFilesPerCommit) {
+      couplingLimited = true;
+      continue;
+    }
+
+    let pairLimitReached = false;
     for (let left = 0; left < paths.length; left += 1) {
       for (let right = left + 1; right < paths.length; right += 1) {
+        if (pairObservations >= limits.maxPairObservations) {
+          couplingLimited = true;
+          pairLimitReached = true;
+          break;
+        }
         const leftPath = paths[left];
         const rightPath = paths[right];
         if (!leftPath || !rightPath) continue;
         const pairKey = `${leftPath}\x00${rightPath}`;
         sharedChanges.set(pairKey, (sharedChanges.get(pairKey) ?? 0) + 1);
+        pairObservations += 1;
       }
+      if (pairLimitReached) break;
     }
   }
 
@@ -247,17 +326,52 @@ const createEvidence = (
         right.confidence - left.confidence ||
         left.paths.join("\x00").localeCompare(right.paths.join("\x00")),
     );
+  if (temporalCoupling.length > limits.maxCouplingResults) {
+    couplingLimited = true;
+  }
 
   return {
-    changeAmplification: amplification.sort(
-      (left, right) =>
-        right.filesChanged - left.filesChanged ||
-        right.date.localeCompare(left.date),
-    ),
-    exclusions,
-    hotspots,
-    temporalCoupling,
+    couplingLimited,
+    evidence: {
+      changeAmplification: amplification.sort(
+        (left, right) =>
+          right.filesChanged - left.filesChanged ||
+          right.date.localeCompare(left.date),
+      ),
+      exclusions,
+      hotspots,
+      temporalCoupling: temporalCoupling.slice(0, limits.maxCouplingResults),
+    },
   };
+};
+
+const resolvePhysicalPath = (targetPath: string) => {
+  const absoluteTarget = resolve(targetPath);
+  const missingSegments: string[] = [];
+  let existingParent = absoluteTarget;
+  while (!existsSync(existingParent)) {
+    missingSegments.unshift(basename(existingParent));
+    const parent = dirname(existingParent);
+    if (parent === existingParent) break;
+    existingParent = parent;
+  }
+  return resolve(
+    realpathSync(existingParent),
+    ...missingSegments,
+  );
+};
+
+const isInsideRepository = (repositoryRoot: string, targetPath: string) => {
+  const relativePath = relative(
+    resolvePhysicalPath(repositoryRoot),
+    resolvePhysicalPath(targetPath),
+  );
+  return (
+    relativePath === "" ||
+    (relativePath !== ".." &&
+      !relativePath.startsWith(`..${sep}`) &&
+      !isAbsolute(relativePath))
+  );
 };
 
 const writeEvidence = (outputPath: string, survey: MaintenanceRiskSurvey) => {
@@ -316,11 +430,15 @@ export const surveyMaintenanceRisk = async (
       ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
       rootCommandOptions,
     );
-    const trackedDiff = await runGit(
-      gitExecutable,
-      ["diff", "--binary", "HEAD"],
-      rootCommandOptions,
-    );
+    const trackedPaths = (
+      await runGit(
+        gitExecutable,
+        ["diff", "--name-only", "-z", "HEAD"],
+        rootCommandOptions,
+      )
+    )
+      .split("\x00")
+      .filter(Boolean);
     const untrackedPaths = (
       await runGit(
         gitExecutable,
@@ -333,12 +451,32 @@ export const surveyMaintenanceRisk = async (
     const stateHash = createHash("sha256")
       .update(head)
       .update("\x00")
-      .update(status)
-      .update("\x00")
-      .update(trackedDiff);
-    for (const path of untrackedPaths.sort()) {
+      .update(status);
+    const regularDirtyPaths: string[] = [];
+    for (const path of [...new Set([...trackedPaths, ...untrackedPaths])].sort()) {
       stateHash.update("\x00").update(path).update("\x00");
-      stateHash.update(readFileSync(resolve(root, path)));
+      const absolutePath = resolve(root, path);
+      if (!existsSync(absolutePath)) {
+        stateHash.update("missing");
+        continue;
+      }
+      const fileStatus = lstatSync(absolutePath);
+      if (fileStatus.isSymbolicLink()) {
+        stateHash.update("symlink:").update(readlinkSync(absolutePath));
+      } else if (fileStatus.isFile()) {
+        regularDirtyPaths.push(path);
+      } else {
+        stateHash.update(`special:${fileStatus.mode}:${fileStatus.size}`);
+      }
+    }
+    for (let index = 0; index < regularDirtyPaths.length; index += 100) {
+      const paths = regularDirtyPaths.slice(index, index + 100);
+      const objectIds = await runGit(
+        gitExecutable,
+        ["hash-object", "--no-filters", "--", ...paths],
+        rootCommandOptions,
+      );
+      stateHash.update(objectIds);
     }
 
     const history = await runGit(
@@ -349,13 +487,24 @@ export const surveyMaintenanceRisk = async (
         "--date=iso-strict",
         "--find-renames",
         "--name-status",
-        "--format=%x1e%H%x1f%aI%x1f%s%x1f%P",
+        "-z",
+        "--format=%x00H%x00%H%x00%aI%x00%s%x00%P%x00",
       ],
       rootCommandOptions,
     );
+    const analysis = createEvidence(parseHistory(history), depth);
+    const failures: Failure[] = analysis.couplingLimited
+      ? [
+          {
+            capability: "temporal-coupling",
+            message:
+              "Temporal coupling was bounded by the selected depth; hotspot and change-amplification evidence remain complete for analyzed commits",
+          },
+        ]
+      : [];
     survey = {
-      evidence: createEvidence(parseHistory(history), depth.maxFilesPerCommit),
-      failures: [],
+      evidence: analysis.evidence,
+      failures,
       generatedAt: new Date().toISOString(),
       provenance: {
         capability: "git-history",
@@ -369,7 +518,7 @@ export const surveyMaintenanceRisk = async (
         root,
         stateId: stateHash.digest("hex"),
       },
-      status: "complete",
+      status: analysis.couplingLimited ? "partial" : "complete",
     };
   } catch (error) {
     if (
@@ -405,7 +554,14 @@ export const surveyMaintenanceRisk = async (
     };
   }
 
-  if (options.outputPath) writeEvidence(options.outputPath, survey);
+  if (options.outputPath) {
+    if (isInsideRepository(survey.repository.root, options.outputPath)) {
+      throw new Error(
+        "Analysis output must be outside the target repository so audit evidence does not alter repository state",
+      );
+    }
+    writeEvidence(options.outputPath, survey);
+  }
   return survey;
 };
 

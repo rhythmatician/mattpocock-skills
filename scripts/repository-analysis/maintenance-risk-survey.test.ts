@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -60,7 +66,10 @@ const createRepository = () => {
 
 test("surveys maintenance risk through measured repository history", async () => {
   const repositoryPath = createRepository();
-  const outputPath = join(repositoryPath, ".evidence", "maintenance-risk.json");
+  const outputPath = join(
+    mkdtempSync(join(tmpdir(), "maintenance-risk-evidence-")),
+    "maintenance-risk.json",
+  );
 
   const result = await surveyMaintenanceRisk({
     repositoryPath,
@@ -136,9 +145,32 @@ test("reports unavailable Git as partial evidence", async () => {
   assert.deepEqual(result.evidence.hotspots, []);
 });
 
+test("writes partial evidence when the target repository does not exist", async () => {
+  const repositoryPath = join(
+    mkdtempSync(join(tmpdir(), "maintenance-risk-missing-")),
+    "not-a-repository",
+  );
+  const outputPath = join(
+    mkdtempSync(join(tmpdir(), "maintenance-risk-evidence-")),
+    "maintenance-risk.json",
+  );
+
+  const result = await surveyMaintenanceRisk({
+    repositoryPath,
+    depth: "quick",
+    outputPath,
+  });
+
+  assert.equal(result.status, "partial");
+  assert.equal(JSON.parse(readFileSync(outputPath, "utf8")).status, "partial");
+});
+
 test("CLI writes evidence without flooding stdout", () => {
   const repositoryPath = createRepository();
-  const outputPath = join(repositoryPath, "maintenance-risk.json");
+  const outputPath = join(
+    mkdtempSync(join(tmpdir(), "maintenance-risk-evidence-")),
+    "maintenance-risk.json",
+  );
   const scriptPath = join(
     process.cwd(),
     "scripts",
@@ -171,4 +203,140 @@ test("CLI writes evidence without flooding stdout", () => {
   assert.ok(stdout.length < 1_000);
   assert.equal("evidence" in receipt, false);
   assert.equal(JSON.parse(readFileSync(outputPath, "utf8")).status, "complete");
+});
+
+test("refuses to write audit evidence into the target repository", async () => {
+  const repositoryPath = createRepository();
+
+  await assert.rejects(
+    surveyMaintenanceRisk({
+      repositoryPath,
+      depth: "quick",
+      outputPath: join(repositoryPath, "maintenance-risk.json"),
+    }),
+    /outside the target repository/i,
+  );
+});
+
+test("treats dot-dot-prefixed names as inside the target repository", async () => {
+  const repositoryPath = createRepository();
+
+  await assert.rejects(
+    surveyMaintenanceRisk({
+      repositoryPath,
+      depth: "quick",
+      outputPath: join(repositoryPath, "..evidence", "maintenance-risk.json"),
+    }),
+    /outside the target repository/i,
+  );
+});
+
+test("resolves symlinked output parents before repository containment checks", async () => {
+  const repositoryPath = createRepository();
+  const evidenceDirectory = join(repositoryPath, "evidence");
+  mkdirSync(evidenceDirectory);
+  const outsideDirectory = mkdtempSync(
+    join(tmpdir(), "maintenance-risk-link-"),
+  );
+  const linkedDirectory = join(outsideDirectory, "linked-evidence");
+  symlinkSync(
+    evidenceDirectory,
+    linkedDirectory,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+
+  await assert.rejects(
+    surveyMaintenanceRisk({
+      repositoryPath,
+      depth: "quick",
+      outputPath: join(linkedDirectory, "maintenance-risk.json"),
+    }),
+    /outside the target repository/i,
+  );
+});
+
+test("preserves unusual Git pathnames exactly", async () => {
+  const repositoryPath = createRepository();
+  const unusualPath = "caf\u00e9.ts";
+  writeFileSync(join(repositoryPath, unusualPath), "export const odd = true;\n");
+  commit(
+    repositoryPath,
+    "add unusual \u001e separator path",
+    "2026-01-05T00:00:00Z",
+  );
+
+  const result = await surveyMaintenanceRisk({
+    repositoryPath,
+    depth: "quick",
+  });
+
+  assert.equal(
+    result.evidence.hotspots.some(({ path }) => path === unusualPath),
+    true,
+  );
+});
+
+test("bounds temporal coupling work and reports partial evidence", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "maintenance-risk-wide-"));
+  git(repositoryPath, "init");
+  git(repositoryPath, "config", "user.email", "tests@example.com");
+  git(repositoryPath, "config", "user.name", "Tests");
+  for (let index = 0; index < 205; index += 1) {
+    writeFileSync(join(repositoryPath, `file-${index}.ts`), `${index}\n`);
+  }
+  commit(repositoryPath, "wide change", "2026-01-01T00:00:00Z");
+
+  const result = await surveyMaintenanceRisk({
+    repositoryPath,
+    depth: "deep",
+  });
+
+  assert.equal(result.status, "partial");
+  assert.equal(
+    result.failures.some(
+      ({ capability }) => capability === "temporal-coupling",
+    ),
+    true,
+  );
+  assert.equal(result.evidence.hotspots.length, 205);
+  assert.ok(result.evidence.temporalCoupling.length <= 20_000);
+});
+
+test("reports partial evidence when coupling result ranking is truncated", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "maintenance-risk-pairs-"));
+  git(repositoryPath, "init");
+  git(repositoryPath, "config", "user.email", "tests@example.com");
+  git(repositoryPath, "config", "user.name", "Tests");
+  for (let index = 0; index < 46; index += 1) {
+    writeFileSync(join(repositoryPath, `file-${index}.ts`), `${index}\n`);
+  }
+  commit(repositoryPath, "many pairs", "2026-01-01T00:00:00Z");
+
+  const result = await surveyMaintenanceRisk({
+    repositoryPath,
+    depth: "quick",
+  });
+
+  assert.equal(result.evidence.temporalCoupling.length, 1_000);
+  assert.equal(result.status, "partial");
+  assert.equal(
+    result.failures.some(
+      ({ capability }) => capability === "temporal-coupling",
+    ),
+    true,
+  );
+});
+
+test("large tracked changes do not discard usable history evidence", async () => {
+  const repositoryPath = createRepository();
+  writeFileSync(join(repositoryPath, "a.ts"), "a".repeat(9 * 1024 * 1024));
+
+  const result = await surveyMaintenanceRisk({
+    repositoryPath,
+    depth: "quick",
+  });
+
+  assert.equal(result.status, "complete");
+  assert.equal(result.repository.dirty, true);
+  assert.ok(result.evidence.hotspots.length > 0);
 });
