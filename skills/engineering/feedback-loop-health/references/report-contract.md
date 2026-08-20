@@ -93,7 +93,7 @@ Add `finding` only after a baseline identifies a measured bottleneck. Its reason
 
 The finding ID is `<scenario-id>:<stage-id>`. A finding on a scenario with `baseline: false` also supplies `baselineFindingId`, pointing to an emitted finding from a baseline scenario. Without that measured link the runner omits the recommendation from `findings`, marks `finding:<stage-id>` unavailable, and makes the comparison scenario partial.
 
-Every `evidencePaths` entry must exist after the scenario run and resolve outside the target repository. The runner keeps only valid paths in `cleanup.evidencePaths`. Missing or in-repository paths appear in `cleanup.unavailableEvidencePaths`, make cleanup partial, and become confidence boundaries.
+Every `evidencePaths` entry must be an absolute path to an artifact file that exists after the scenario run and resolves outside the target repository. The runner keeps only valid files in `cleanup.evidencePaths`. Relative paths, directories, missing files, and in-repository paths appear in `cleanup.unavailableEvidencePaths`, make cleanup partial, and become confidence boundaries.
 
 ## Normalized result
 

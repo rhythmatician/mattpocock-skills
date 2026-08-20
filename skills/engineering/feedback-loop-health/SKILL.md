@@ -94,7 +94,7 @@ Record the opportunity even when it is not implemented during this audit. Keep g
 
 After the baseline, annotate only measured bottleneck stages with a `finding` block from the report contract, then run the same frozen plan again. A finding in a comparison scenario names the measured baseline finding it compares against. An unlinked or missing baseline makes that recommendation unavailable instead of ranked. The runner emits the normalized diagnostic JSON before the human summary: findings, unavailable stages, confidence boundaries, and cleanup evidence. Each finding carries measured evidence and provenance, affected milestone, reason it dominates, classification, smallest plausible improvement, regression-ratchet opportunity, and owner. The recommendation remains labelled as interpretation rather than measured fact.
 
-Evidence paths are proof, not declarations. Give the plan absolute paths in the external evidence workspace, and create each artifact before the runner finishes. Missing paths and paths inside the target repository make cleanup partial and appear as confidence boundaries.
+Evidence paths are proof, not declarations. Give the plan absolute artifact file paths in the external evidence workspace, and create each file before the runner finishes. Relative paths, directories, missing files, and paths inside the target repository make cleanup partial and appear as confidence boundaries.
 
 Hand off by owner:
 

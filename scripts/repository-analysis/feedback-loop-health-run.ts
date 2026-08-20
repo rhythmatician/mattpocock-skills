@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, isAbsolute, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 
 import { isPathInsideRepository, writeJsonEvidence } from "./evidence.ts";
@@ -770,8 +770,12 @@ export const runFeedbackLoopPlan = async (input: unknown, options: { signal?: Ab
   for (const [index, evidencePath] of plan.evidencePaths.entries()) {
     const absolutePath = resolve(evidencePath);
     let reason: string | undefined;
-    if (!existsSync(absolutePath)) {
+    if (!isAbsolute(evidencePath)) {
+      reason = "Evidence path must be an absolute artifact file path";
+    } else if (!existsSync(absolutePath)) {
       reason = "Evidence path does not exist after the scenario run";
+    } else if (!statSync(absolutePath).isFile()) {
+      reason = "Evidence path must be a file";
     } else if (isPathInsideRepository(root, absolutePath)) {
       reason = "Evidence path must be outside the target repository";
     }

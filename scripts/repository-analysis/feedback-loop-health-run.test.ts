@@ -385,6 +385,46 @@ test("cleanup proof excludes missing and in-repository evidence paths", async ()
   );
 });
 
+test("cleanup proof rejects relative paths and directories", async () => {
+  const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
+  const evidenceDirectory = mkdtempSync(
+    join(tmpdir(), "feedback-loop-directory-"),
+  );
+  const input = plan(repositoryPath);
+  input.evidencePaths = ["..", evidenceDirectory];
+
+  const result = await runFeedbackLoopPlan(input);
+
+  assert.equal(result.cleanup.status, "partial");
+  assert.equal(result.status, "partial");
+  assert.deepEqual(result.cleanup.evidencePaths, []);
+  assert.equal(result.cleanup.unavailableEvidencePaths.length, 2);
+  assert.equal(
+    result.cleanup.unavailableEvidencePaths.some(({ reason }) =>
+      /absolute artifact file path/i.test(reason),
+    ),
+    true,
+  );
+  assert.equal(
+    result.cleanup.unavailableEvidencePaths.some(({ reason }) =>
+      /must be a file/i.test(reason),
+    ),
+    true,
+  );
+  assert.equal(
+    result.unavailableStages.filter(
+      ({ scenarioId }) => scenarioId === "report",
+    ).length,
+    2,
+  );
+  assert.equal(
+    result.confidenceBoundaries.some((boundary) =>
+      /absolute artifact file path/i.test(boundary),
+    ),
+    true,
+  );
+});
+
 test("runs cleanup after a failed drive and preserves the failed stage", async () => {
   const repositoryPath = mkdtempSync(join(tmpdir(), "feedback-loop-run-"));
   const cleanupMarker = join(repositoryPath, "cleanup-ran");
