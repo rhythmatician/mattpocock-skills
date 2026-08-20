@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Skill Ecosystem Audit Result",
+  "type": "object",
+  "required": ["audit_date", "scope", "hosts", "findings", "unverified"],
+  "properties": {
+    "audit_date": { "type": "string", "format": "date" },
+    "scope": { "type": "array", "items": { "type": "string" } },
+    "hosts": { "type": "array", "items": { "type": "string" } },
+    "inventory": { "type": "array", "items": { "type": "object" } },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "confidence", "evidence_class", "source", "observed_value", "impact", "remediation"],
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "enum": ["blocker", "error", "warning", "information"] },
+          "confidence": { "enum": ["low", "medium", "high"] },
+          "evidence_class": { "enum": ["SPEC", "HOST-DOCUMENTED", "RUNTIME-OBSERVED", "FIELD-REPORTED", "REPO", "HEURISTIC"] },
+          "host": { "type": ["string", "null"] },
+          "skill": { "type": ["string", "null"] },
+          "source": { "type": "string", "minLength": 1 },
+          "observed_value": {},
+          "threshold": {},
+          "impact": { "type": "string" },
+          "remediation": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "metrics": { "type": "object" },
+    "unverified": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

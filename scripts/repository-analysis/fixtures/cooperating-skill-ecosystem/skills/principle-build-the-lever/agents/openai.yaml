@@ -1,0 +1,3 @@
+interface:
+  display_name: "Build the Lever"
+  short_description: "Prefer a deterministic lever"

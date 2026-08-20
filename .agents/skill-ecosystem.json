@@ -1,0 +1,38 @@
+{
+  "version": "1",
+  "nodes": [
+    { "name": "maintenance-risk", "invocation": "model-invoked" },
+    { "name": "test-suite-health", "invocation": "model-invoked" },
+    { "name": "knowledge-hygiene", "invocation": "user-only" },
+    { "name": "improve-codebase-architecture", "invocation": "user-only" },
+    { "name": "code-review", "invocation": "model-invoked" },
+    {
+      "name": "codebase-health",
+      "availability": "conditional",
+      "invocation": "user-only"
+    },
+    {
+      "name": "feedback-loop-health",
+      "availability": "conditional",
+      "invocation": "model-invoked"
+    },
+    {
+      "name": "architecture-guardrails",
+      "availability": "conditional",
+      "invocation": "user-only"
+    }
+  ],
+  "edges": [
+    { "from": "codebase-health", "kind": "invokes", "to": "maintenance-risk", "intentional": true },
+    { "from": "codebase-health", "kind": "invokes", "to": "test-suite-health", "intentional": true },
+    { "from": "codebase-health", "kind": "requires", "to": "knowledge-hygiene", "artifact": "separately requested knowledge-hygiene report", "intentional": true },
+    { "from": "codebase-health", "kind": "invokes", "to": "feedback-loop-health", "intentional": true },
+    { "from": "maintenance-risk", "kind": "produces", "to": "codebase-health", "artifact": "maintenance-risk report", "intentional": true },
+    { "from": "test-suite-health", "kind": "produces", "to": "codebase-health", "artifact": "test-suite-health report", "intentional": true },
+    { "from": "knowledge-hygiene", "kind": "produces", "to": "codebase-health", "artifact": "knowledge-hygiene report", "intentional": true },
+    { "from": "feedback-loop-health", "kind": "produces", "to": "codebase-health", "artifact": "feedback-loop-health report", "intentional": true },
+    { "from": "maintenance-risk", "kind": "produces", "to": "improve-codebase-architecture", "artifact": "ranked architecture target", "intentional": true },
+    { "from": "knowledge-hygiene", "kind": "produces", "to": "architecture-guardrails", "artifact": "settled durable constraint", "intentional": true },
+    { "from": "code-review", "kind": "validates", "to": "codebase-health", "artifact": "Health Regression", "intentional": true }
+  ]
+}

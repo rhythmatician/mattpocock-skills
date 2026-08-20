@@ -216,6 +216,7 @@ Skills I use daily for code work.
 - **[knowledge-hygiene](./skills/engineering/knowledge-hygiene/SKILL.md)**: Audit duplicate authority, stale repository knowledge, conflicting agent instructions, and code/doc source-of-truth splits without rewriting suspected duplicates.
 - **[feedback-loop-health](./skills/engineering/feedback-loop-health/SKILL.md)**: Measure end-to-end time from an edit to trustworthy automated or human feedback, then identify the stages that dominate the wait.
 - **[maintenance-risk](./skills/engineering/maintenance-risk/SKILL.md)**: Find empirical maintenance hotspots through deterministic history, complexity, dependency, and dead-architecture evidence.
+- **[skill-ecosystem-auditor](./skills/engineering/skill-ecosystem-auditor/SKILL.md)**: Audit a cooperating skill ecosystem for trigger collisions, ownership conflicts, unsafe composition, host differences, and user-only invocation leaks.
 - **[tdd](./skills/engineering/tdd/SKILL.md)**: Test-driven development with a red-green-refactor loop. Builds features or fixes bugs one vertical slice at a time.
 - **[test-suite-health](./skills/engineering/test-suite-health/SKILL.md)**: Audit whether an existing test suite deserves confidence through cheap diagnostics, focused resilience and state checks, and optional targeted mutation.
 - **[domain-modeling](./skills/engineering/domain-modeling/SKILL.md)**: Actively build and sharpen a project's domain model: challenge terms against the glossary, stress-test with edge-case scenarios, and update `CONTEXT.md` and ADRs inline.
