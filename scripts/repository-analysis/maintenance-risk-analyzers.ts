@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { ProcessExecutionError, runProcess } from "./process.ts";
@@ -115,15 +115,31 @@ export type StaticEvidence = {
 
 const DEPTH_LIMITS: Record<
   AnalysisDepth,
-  { maxOutputBytes: number; timeoutMs: number; top: number }
+  {
+    maxGraphEdges: number;
+    maxGraphNodes: number;
+    maxOutputBytes: number;
+    timeoutMs: number;
+    top: number;
+  }
 > = {
-  quick: { maxOutputBytes: 8 * 1024 * 1024, timeoutMs: 15_000, top: 100 },
+  quick: {
+    maxGraphEdges: 50_000,
+    maxGraphNodes: 20_000,
+    maxOutputBytes: 8 * 1024 * 1024,
+    timeoutMs: 15_000,
+    top: 100,
+  },
   standard: {
+    maxGraphEdges: 250_000,
+    maxGraphNodes: 100_000,
     maxOutputBytes: 32 * 1024 * 1024,
     timeoutMs: 60_000,
     top: 500,
   },
   deep: {
+    maxGraphEdges: 1_000_000,
+    maxGraphNodes: 250_000,
     maxOutputBytes: 64 * 1024 * 1024,
     timeoutMs: 180_000,
     top: 2_000,
@@ -154,49 +170,6 @@ const DEPENDENCY_RELATIONS = new Set([
 
 const graphifyPath = (repositoryPath: string) =>
   join(repositoryPath, "graphify-out", "graph.json");
-
-const hasUsableGraphifyArtifact = (repositoryPath: string) => {
-  const path = graphifyPath(repositoryPath);
-  if (!existsSync(path)) return false;
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (
-      !isRecord(parsed) ||
-      !Array.isArray(parsed.nodes) ||
-      (!Array.isArray(parsed.links) && !Array.isArray(parsed.edges))
-    ) {
-      return false;
-    }
-    const nodes = new Map(
-      recordArray(parsed.nodes)
-        .map((node) => [
-          stringValue(node.id),
-          stringValue(node.file_type) || undefined,
-        ] as const)
-        .filter(([id]) => id.length > 0),
-    );
-    return recordArray(parsed.links ?? parsed.edges).some((edge) => {
-      const source = stringValue(edge.source);
-      const target = stringValue(edge.target);
-      const sourceType = nodes.get(source);
-      const targetType = nodes.get(target);
-      const codeEndpoints =
-        sourceType !== undefined || targetType !== undefined
-          ? sourceType === "code" && targetType === "code"
-          : true;
-      return (
-        source !== target &&
-        nodes.has(source) &&
-        nodes.has(target) &&
-        stringValue(edge.confidence) === "EXTRACTED" &&
-        DEPENDENCY_RELATIONS.has(stringValue(edge.relation)) &&
-        codeEndpoints
-      );
-    });
-  } catch {
-    return false;
-  }
-};
 
 const commandCapability = (
   command: keyof AnalyzerAdapterResult["commands"],
@@ -260,14 +233,7 @@ export const createOmenAdapter = (
 
     const commands: Array<
       "complexity" | "deadcode" | "graph" | "hotspot" | "smells"
-    > = [
-      "complexity",
-      "deadcode",
-      "hotspot",
-    ];
-    if (!hasUsableGraphifyArtifact(options.repositoryPath)) {
-      commands.push("graph", "smells");
-    }
+    > = ["complexity", "deadcode", "graph", "hotspot", "smells"];
     const results = await Promise.all(
       commands.map(async (command) => {
         try {
@@ -530,6 +496,7 @@ type MechanicalEdge = {
 const stronglyConnectedComponents = (
   paths: string[],
   adjacency: Map<string, Set<string>>,
+  checkBudget: () => void,
 ) => {
   const orderedPaths = [...paths].sort();
   const reverseAdjacency = new Map<string, Set<string>>();
@@ -543,12 +510,16 @@ const stronglyConnectedComponents = (
 
   const finishOrder: string[] = [];
   const visited = new Set<string>();
-  for (const start of orderedPaths) {
+  let traversalSteps = 0;
+  for (const [index, start] of orderedPaths.entries()) {
+    if (index % 1_000 === 0) checkBudget();
     if (visited.has(start)) continue;
     const stack: Array<{ expanded: boolean; path: string }> = [
       { expanded: false, path: start },
     ];
     while (stack.length > 0) {
+      traversalSteps += 1;
+      if (traversalSteps % 1_000 === 0) checkBudget();
       const current = stack.pop();
       if (!current) break;
       if (current.expanded) {
@@ -569,12 +540,15 @@ const stronglyConnectedComponents = (
 
   const components: string[][] = [];
   visited.clear();
-  for (const start of finishOrder.reverse()) {
+  for (const [index, start] of finishOrder.reverse().entries()) {
+    if (index % 1_000 === 0) checkBudget();
     if (visited.has(start)) continue;
     const component: string[] = [];
     const stack = [start];
     visited.add(start);
     while (stack.length > 0) {
+      traversalSteps += 1;
+      if (traversalSteps % 1_000 === 0) checkBudget();
       const member = stack.pop();
       if (!member) break;
       component.push(member);
@@ -595,9 +569,39 @@ const stronglyConnectedComponents = (
 
 const readGraphifyEvidence = (
   repositoryPath: string,
+  depth: AnalysisDepth,
+  signal?: AbortSignal,
 ): EvidenceSet<DependencyPathology> | undefined => {
   const graphPath = graphifyPath(repositoryPath);
   if (!existsSync(graphPath)) return undefined;
+  const limits = DEPTH_LIMITS[depth];
+  const size = statSync(graphPath).size;
+  if (size > limits.maxOutputBytes) {
+    throw new Error(
+      `${graphPath} is ${size} bytes, above the ${limits.maxOutputBytes}-byte ${depth} limit`,
+    );
+  }
+  if (signal?.aborted) {
+    throw new ProcessExecutionError(
+      "Graphify analysis was cancelled",
+      "cancelled",
+    );
+  }
+  const deadline = Date.now() + limits.timeoutMs;
+  const checkBudget = () => {
+    if (signal?.aborted) {
+      throw new ProcessExecutionError(
+        "Graphify analysis was cancelled",
+        "cancelled",
+      );
+    }
+    if (Date.now() > deadline) {
+      throw new ProcessExecutionError(
+        `Graphify analysis exceeded the ${limits.timeoutMs}ms ${depth} limit`,
+        "timeout",
+      );
+    }
+  };
   const parsed = JSON.parse(readFileSync(graphPath, "utf8")) as unknown;
   if (
     !isRecord(parsed) ||
@@ -607,8 +611,16 @@ const readGraphifyEvidence = (
     throw new Error(`${graphPath} does not contain Graphify nodes and edges`);
   }
 
+  const parsedNodes = recordArray(parsed.nodes);
+  const parsedEdges = recordArray(parsed.links ?? parsed.edges);
+  const graphWasTruncated =
+    parsedNodes.length > limits.maxGraphNodes ||
+    parsedEdges.length > limits.maxGraphEdges;
   const nodesById = new Map<string, GraphifyNode>();
-  for (const node of recordArray(parsed.nodes)) {
+  for (const [index, node] of parsedNodes
+    .slice(0, limits.maxGraphNodes)
+    .entries()) {
+    if (index % 1_000 === 0) checkBudget();
     const id = stringValue(node.id);
     const path = stringValue(node.source_file ?? node.path, id);
     if (!id || !path) continue;
@@ -626,7 +638,10 @@ const readGraphifyEvidence = (
 
   const mechanicalEdges: MechanicalEdge[] = [];
   let nonMechanicalEdgeCount = 0;
-  for (const edge of recordArray(parsed.links ?? parsed.edges)) {
+  for (const [index, edge] of parsedEdges
+    .slice(0, limits.maxGraphEdges)
+    .entries()) {
+    if (index % 1_000 === 0) checkBudget();
     const confidence = stringValue(edge.confidence);
     const relation = stringValue(edge.relation);
     const source = nodesById.get(stringValue(edge.source));
@@ -646,13 +661,21 @@ const readGraphifyEvidence = (
     if (!source || !target || source.path === target.path) continue;
     mechanicalEdges.push({ source, target });
   }
-  if (mechanicalEdges.length === 0) return undefined;
+  if (mechanicalEdges.length === 0) {
+    if (graphWasTruncated) {
+      throw new Error(
+        `${graphPath} was bounded at ${limits.maxGraphNodes} nodes and ${limits.maxGraphEdges} edges before any usable mechanical dependency edge was retained`,
+      );
+    }
+    return undefined;
+  }
 
   const fanIn = new Map<string, number>();
   const fanOut = new Map<string, number>();
   const adjacency = new Map<string, Set<string>>();
   let crossCommunityEdges = 0;
-  for (const { source, target } of mechanicalEdges) {
+  for (const [index, { source, target }] of mechanicalEdges.entries()) {
+    if (index % 1_000 === 0) checkBudget();
     fanOut.set(source.path, (fanOut.get(source.path) ?? 0) + 1);
     fanIn.set(target.path, (fanIn.get(target.path) ?? 0) + 1);
     const targets = adjacency.get(source.path) ?? new Set<string>();
@@ -685,7 +708,7 @@ const readGraphifyEvidence = (
     items: [
       {
         crossCommunityEdges,
-        cycles: stronglyConnectedComponents(paths, adjacency),
+        cycles: stronglyConnectedComponents(paths, adjacency, checkBudget),
         mechanicalEdgeCount: mechanicalEdges.length,
         nonMechanicalEdgeCount,
         nodes,
@@ -696,13 +719,13 @@ const readGraphifyEvidence = (
     provenance: [
       {
         analyzer: "graphify",
-        command: "read graph",
+        command: graphWasTruncated ? "read graph (bounded)" : "read graph",
         evidenceStrength: { basis: "persisted-source", level: 2 },
         source: graphPath,
         toolVersion: "persisted-artifact",
       },
     ],
-    status: "complete",
+    status: graphWasTruncated ? "partial" : "complete",
   };
 };
 
@@ -753,7 +776,11 @@ export const collectStaticEvidence = async (options: {
   let dependencyPathology: EvidenceSet<DependencyPathology>;
   try {
     dependencyPathology =
-      readGraphifyEvidence(options.repositoryPath) ??
+      readGraphifyEvidence(
+        options.repositoryPath,
+        options.depth,
+        options.signal,
+      ) ??
       normalizeOmenDependency(
         outputFor("graph"),
         outputFor("smells"),
@@ -764,6 +791,12 @@ export const collectStaticEvidence = async (options: {
         dependencyAnalyzer,
       );
   } catch (error) {
+    if (
+      error instanceof ProcessExecutionError &&
+      error.kind === "cancelled"
+    ) {
+      throw error;
+    }
     failures.push({
       capability: "dependency-pathology",
       message: `Graphify evidence could not be consumed: ${
@@ -779,6 +812,9 @@ export const collectStaticEvidence = async (options: {
       ],
       dependencyAnalyzer,
     );
+    if (dependencyPathology.status === "complete") {
+      dependencyPathology = { ...dependencyPathology, status: "partial" };
+    }
   }
 
   const cognitiveComplexity = normalizeComplexity(

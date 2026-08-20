@@ -360,3 +360,80 @@ test("analyzes large Graphify cycles without recursive traversal", async () => {
     nodeCount,
   );
 });
+
+test("bounds Graphify evidence by analysis depth", async () => {
+  const repositoryPath = createRepository();
+  const graphDirectory = join(repositoryPath, "graphify-out");
+  mkdirSync(graphDirectory);
+  const nodeCount = 20_001;
+  const nodes = Array.from({ length: nodeCount }, (_, index) => ({
+    id: `node-${index}`,
+    source_file: `src/file-${index}.ts`,
+  }));
+  const links = Array.from({ length: nodeCount - 1 }, (_, index) => ({
+    confidence: "EXTRACTED",
+    relation: "imports",
+    source: `node-${index}`,
+    target: `node-${index + 1}`,
+  }));
+  writeFileSync(
+    join(graphDirectory, "graph.json"),
+    JSON.stringify({ links, nodes }),
+  );
+
+  const result = await surveyMaintenanceRisk({
+    analyzerAdapters: [completeAnalyzerAdapter],
+    depth: "quick",
+    repositoryPath,
+  });
+
+  const dependency = result.evidence.dependencyPathology;
+  assert.equal(dependency.status, "partial");
+  assert.equal(dependency.provenance[0]?.command, "read graph (bounded)");
+  assert.equal(dependency.items[0]?.nodes.length, 20_000);
+  assert.equal(result.status, "partial");
+});
+
+test("records bounded Graphify failure before analyzer fallback", async () => {
+  const repositoryPath = createRepository();
+  const graphDirectory = join(repositoryPath, "graphify-out");
+  mkdirSync(graphDirectory);
+  const nodes = Array.from({ length: 20_001 }, (_, index) => ({
+    id: `node-${index}`,
+    source_file: `src/file-${index}.ts`,
+  }));
+  writeFileSync(
+    join(graphDirectory, "graph.json"),
+    JSON.stringify({
+      links: [
+        {
+          confidence: "EXTRACTED",
+          relation: "imports",
+          source: "node-20000",
+          target: "node-0",
+        },
+      ],
+      nodes,
+    }),
+  );
+
+  const result = await surveyMaintenanceRisk({
+    analyzerAdapters: [completeAnalyzerAdapter],
+    depth: "quick",
+    repositoryPath,
+  });
+
+  assert.equal(
+    result.evidence.dependencyPathology.items[0]?.source,
+    "fixture-analyzer",
+  );
+  assert.ok(
+    result.failures.some(
+      ({ capability, message }) =>
+        capability === "dependency-pathology" &&
+        message.includes("was bounded") &&
+        message.includes("before any usable mechanical dependency edge"),
+    ),
+  );
+  assert.equal(result.status, "partial");
+});
