@@ -11,7 +11,7 @@ Coverage and a green run are inputs, never verdicts. Prefer measured experiments
 
 ## Evidence workspace
 
-Create a fresh directory in the OS temp directory for commands, machine-readable reports, seeds, and the final report. Keep every artifact outside the target repository. Record the repository HEAD, dirty state, command, tool version, seed, repeat count, and target scope beside each observation.
+Create a fresh directory in the OS temp directory for commands, machine-readable reports, seeds, and the final report. Keep every artifact outside the target repository. Record the repository HEAD, dirty state, stable state ID, command, tool version, mechanical seed source, repeat count, and target scope beside each observation.
 
 Redact secrets from commands and artifacts. Use synthetic or disposable state for failure experiments. Preserve evidence through cleanup.
 
@@ -38,17 +38,21 @@ Create a JSON experiment plan in the evidence workspace, then run every dynamic 
   --output <temp-directory>/experiments.json
 ```
 
-Each plan experiment names an ID, diagnostic, executable, argument array, parser, repeat count, timeout, and optional seed, target, environment, working directory, or report path. Pass arguments as an array, never through a shell. Keep report paths outside the repository. The runner bounds execution, preserves raw stdout/stderr per run, and normalizes TAP, JUnit XML, Jest/Vitest JSON, Stryker mutation JSON, and exit-code-only tools into one report with failure rates, durations, test counts, and mutation counts. A normalization failure is a named partial result, not permission to reason from the tool's presentation.
+Use plan `schemaVersion: 2`. Version 1 is rejected because its standalone seed string cannot prove that the seed reached the tool. Migrate by replacing the string with the version 2 mechanical seed pointer described below.
+
+Each plan experiment names an ID, diagnostic, executable, argument array, parser, repeat count, timeout, and optional target, environment, working directory, report path, capability gaps, or safe version argument array. Pass arguments as an array, never through a shell. Keep report paths outside the repository. Before each repeat, the runner fingerprints the configured report path. It preserves a deterministic per-run copy only when execution creates or changes that report, including when execution times out or otherwise fails. A missing or unchanged report is an explicit stale-evidence gap and is never attributed to the later run. The runner also preserves raw stdout/stderr, records repository state before and after, and normalizes TAP, JUnit XML, Jest/Vitest JSON, Stryker mutation JSON, and exit-code-only tools into one report. A normalization failure is a named partial result, not permission to reason from the tool's presentation.
+
+The runner has no universal seed flag. Put the seed into the tool's real argument array or environment map, then configure `seed` as either `{ "source": "argument", "argumentIndex": <index> }` or `{ "source": "environment", "environmentVariable": "<name>" }`. The runner derives the recorded value from that location and rejects a seed pointer that does not resolve. Configure `versionArgs` only when that executable has a safe version command; otherwise retain the named tool-version capability gap.
 
 Start the plan with the repository's existing test command once, using its native machine-readable timing/reporting option where available. Do not add dependencies just to complete this pass. Capture:
 
-- pass, fail, skip, quarantine, and retry counts;
-- per-test or per-file duration and runtime concentration;
+- pass, fail, and skip counts, plus quarantine and retry counts when the native machine reporter exposes them;
+- per-test or per-file duration and runtime concentration when the native machine reporter exposes them;
 - existing random seed and ordering settings;
-- fixture scope and setup cost reported by the runner;
+- fixture scope and setup cost when the native machine reporter exposes them;
 - machine output, exit code, and wall-clock duration.
 
-The cheap survey is complete when every available cheap diagnostic has an artifact, and every unavailable one has a named capability gap.
+The cheap survey is complete when every available cheap diagnostic has an artifact, and every unavailable metric or diagnostic has a named capability gap. Preserve the native machine report when it contains evidence the shared parser does not normalize. Never infer missing fields from console prose.
 
 ## 2. Model the investigation
 
@@ -65,7 +69,7 @@ Choose the smallest experiment that can confirm or reject each lead. Add it to t
 ### Flakiness, order, state, and runtime
 
 - Repeat the suspicious test or smallest relevant shard. Report failures divided by runs, with the exact repeat count.
-- Use the runner's seeded shuffle or an established order-randomization tool. Preserve every failing seed and rerun it to confirm reproducibility.
+- Configure the repository tool's seeded shuffle or an established order-randomization tool through its real argument or environment mechanism. Point the plan's seed provenance at that configured value, preserve every failing seed, and rerun it to confirm reproducibility.
 - Compare isolated and suite runs to expose order prerequisites.
 - Vary one evidenced hidden input at a time: working directory, timezone, locale, clock, randomness seed, environment, concurrency, filesystem state, or cache state.
 - Use runner timing data to report concentration, such as the slowest tests' share of total runtime. Do not infer slowness from file size.
@@ -97,7 +101,7 @@ Changing a harness to match broken product behavior is not a fix.
 
 Mutation is an expensive branch. Enter it only when the user requests it, the target is critical or changing heavily, bugs escape despite high coverage, or cheaper evidence suggests assertions do not protect behavior.
 
-Use an established mutation tool detected for the target ecosystem. Never write or simulate a mutation engine. Target the smallest high-risk module, file, class, or function the tool supports, and use incremental or changed-code modes when available. Run it through the experiment plan with a supported mutation parser or an explicit exit-code-only capability gap. Capture the tool version, target, baseline tests, generated/killed/survived/timeout counts, runtime, and surviving mutant locations.
+Use an established mutation tool detected for the target ecosystem. Never write or simulate a mutation engine. Target the smallest high-risk module, file, class, or function the tool supports, and use incremental or changed-code modes when available. Run it through the experiment plan with a supported mutation parser or preserve its native report with an explicit exit-code-only normalization capability gap. Capture structured generated/killed/survived/timeout counts and surviving mutant locations only when a supported machine-readable parser provides them. Otherwise keep the tool version, target, baseline, runtime, native report, and exit code without inferring counts from console prose. Add parsers only for a real tool and consumer.
 
 Survivors are evidence to investigate. Equivalent mutations, unreachable code, and implementation-detail mutations do not automatically demand tests. Expand the target only when the first slice produces actionable evidence and the user accepts the cost.
 
@@ -123,5 +127,7 @@ Finish with:
 - the smallest ordered improvements that would buy the most confidence;
 - expensive diagnostics deliberately not run;
 - cleanup confirmation and surviving evidence paths.
+
+Compare each experiment's before and after repository state. Attribute only new, removed, or changed paths relative to that experiment's starting state, so pre-existing dirty state remains distinct. The bounded residue view fingerprints ignored trees up to 2,000 entries and 16 MiB. Dependency-scale trees such as `node_modules`, `vendor`, `.venv`, and `target` are named capability gaps rather than traversed. Crossing a bound makes the experiment evidence partial. Report unexpected residue and preserve it as unknown user state. Remove checkout state only when the harness itself created it and can identify it safely.
 
 Architectural redesign of failure boundaries belongs in architecture work. Report the behavioral evidence, then hand a redesign candidate to `codebase-design` or `improve-codebase-architecture` rather than solving it inside this audit.
