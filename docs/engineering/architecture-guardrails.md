@@ -2,7 +2,7 @@
 
 `architecture-guardrails` turns one settled architectural invariant into an executable dependency or boundary check that runs locally and in CI. It can preserve forbidden or required dependency directions, layering, cycle rules, test-only boundaries, adapter boundaries, and public seams.
 
-The architecture must already be decided and recorded in a durable authority. The skill will not turn a provisional preference into policy, and it will not conduct an architecture audit to invent the rule.
+The architecture must already be decided, either in a durable authority or through your unambiguous declaration that the exact rule is settled. Enforcement always points to a stable decision record, so with your authorization the skill records an explicitly supplied decision before wiring the check. It will not turn a provisional preference into policy or conduct an architecture audit to invent the rule.
 
 ## When to reach for it
 
@@ -11,6 +11,7 @@ You invoke this by typing `/architecture-guardrails`, and the [agent](https://ww
 | Your situation | Reach for |
 | --- | --- |
 | An accepted decision needs a local and CI enforcement check | `architecture-guardrails` |
+| You can state the exact rule as settled but it has not been recorded yet | `architecture-guardrails`, with authorization to record the decision before enforcement |
 | A precise dependency, layering, cycle, adapter, or public-seam rule keeps being violated | `architecture-guardrails` |
 | The correct architecture is still unclear or disputed | [improve-codebase-architecture](https://aihero.dev/skills-improve-codebase-architecture) |
 | You need evidence about current dependencies or relationships | [graphify](https://aihero.dev/skills-graphify) |
@@ -18,7 +19,7 @@ You invoke this by typing `/architecture-guardrails`, and the [agent](https://ww
 
 ## Prerequisites
 
-Bring an exact permitted, forbidden, or required relationship and its durable authority, such as an accepted ADR, architecture document, design record, or accepted decision issue. If either is missing, the skill stops before changing enforcement.
+Bring an exact permitted, forbidden, or required relationship. Prefer an existing durable authority such as an accepted ADR, architecture document, design record, or accepted decision issue. If none exists, unambiguously declare the exact rule settled and authorize the skill to record it through the repository's normal decision convention before enforcement is added. An ambiguous or provisional rule still stops the workflow.
 
 ## The strongest feasible rung
 
@@ -48,14 +49,14 @@ No. Graphify can answer what currently depends on what and help locate the bound
 
 **What if the rule is settled in conversation but not recorded?**
 
-Record the decision in a durable authority first. A chat assertion is too easy to lose or reinterpret, and an executable restriction without a reviewable decision behind it becomes a second unexplained authority.
+Unambiguously declare the exact rule settled and authorize the skill to record it. It then creates or updates the repository's normal decision artifact, or an accepted issue or task, before wiring enforcement. A chat assertion alone is too easy to lose or reinterpret, and an executable restriction without a reviewable decision behind it becomes a second unexplained authority.
 
 ## It's working if
 
 - The exact permitted, forbidden, or required relationship is readable from one enforcement point.
 - Local verification and CI both run the guardrail through their existing paths.
 - An intended relationship passes and a representative violation produces the expected failure where practical.
-- Every exception is narrow, visible, and tied to the same durable authority.
+- Every exception is narrow, visible, and tied to the same durable authority, whether that authority was reused or created with your authorization.
 - Superseded instruction prose disappears while the decision rationale remains available.
 - No custom dependency analyzer or permanent audit-only dependency was added where an established enforcement tool sufficed.
 

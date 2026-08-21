@@ -10,16 +10,18 @@ Turn one settled architectural invariant into a repository check that makes viol
 
 ## 1. Admit only a settled rule
 
-Require both:
+Require an exact invariant, including the subjects, direction, and whether the relationship is permitted, forbidden, or required. Establish that it is settled from either:
 
-- an exact invariant, including the subjects, direction, and whether the relationship is permitted, forbidden, or required;
-- a durable authority such as an accepted ADR, architecture document, design record, or accepted decision issue.
+- an existing durable authority such as an accepted ADR, architecture document, design record, or accepted decision issue; or
+- the user's unambiguous declaration that this exact rule is settled.
+
+Enforcement still needs a stable authority reference. Reuse an existing durable artifact when one exists. If the user supplies the settled rule without one, state the exact decision back, get authorization to record it, and create or update the repository's normal decision artifact or an accepted issue or task before wiring the guardrail. If the user does not authorize a durable record, stop.
 
 Record every intentional exception and its scope. Reject broad preferences such as "keep modules clean" or "avoid coupling" because they cannot produce a binary verdict.
 
-If the rule is provisional, contested, ambiguous, missing durable authority, or still requires an architecture choice, stop. State what is unsettled and ask the user to settle and record it before invoking this skill again. Do not harden a plausible interpretation.
+If the rule is provisional, contested, ambiguous, or still requires an architecture choice, stop. State what is unsettled and ask the user to settle it before invoking this skill again. Do not invent a decision, infer consent from discussion, or harden a plausible interpretation.
 
-This step is complete when the invariant, authority, exact relationship, boundary, and exceptions can be stated without inference.
+This step is complete when the invariant, authority, exact relationship, boundary, and exceptions can be stated without inference, and the durable authority already exists.
 
 ## 2. Ground the target repository
 
@@ -101,7 +103,7 @@ This step is complete when the authority remains intact, the executable rule is 
 For every implemented guardrail, report:
 
 - **Invariant:** the exact permitted, forbidden, or required relationship.
-- **Authority:** the durable decision artifact.
+- **Authority:** the durable decision artifact, including whether it was reused or created with user authorization.
 - **Tool and rung:** the enforcement mechanism and why it is the strongest feasible choice.
 - **Location:** configuration, test, or boundary files changed.
 - **Commands:** focused, local verification, and CI entry points.
