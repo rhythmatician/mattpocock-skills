@@ -7,6 +7,7 @@ Skills I use daily for code work.
 Reachable only when you type them (Claude Code: `disable-model-invocation: true`; Codex: `policy.allow_implicit_invocation: false` in `agents/openai.yaml`).
 
 - **[ask-matt](./ask-matt/SKILL.md)**: Ask which skill or flow fits your situation. A router over the user-invoked skills in this repo.
+- **[architecture-guardrails](./architecture-guardrails/SKILL.md)**: Turn a settled architectural invariant into executable dependency or boundary enforcement that runs locally and in CI.
 - **[codebase-health](./codebase-health/SKILL.md)**: Orchestrate five independent repository-health perspectives, prioritize what matters, and route the next focused investigation.
 - **[grill-with-docs](./grill-with-docs/SKILL.md)**: Grilling session that also builds your project's domain model, sharpening terminology and updating `CONTEXT.md` and ADRs inline.
 - **[domain-architect-interrogator](./domain-architect-interrogator/SKILL.md)**: Interrogate the domain expert (you) about a product design as a senior architect: sea-level goals, ubiquitous language, boundary stress tests, with implementation mechanics firmly black-boxed.

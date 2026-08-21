@@ -94,7 +94,7 @@ If no candidate clears the evidence bar, say so and list the surfaces searched. 
 
 ## Structural follow-through
 
-When the same correction has recurred, recommend the strongest feasible authority mechanism: an unrepresentable or derived relationship, generated output, schema, lint or CI check, canonical helper, runtime validation, then prose as the last resort. Settle the underlying rule before proposing enforcement. If a model-invoked skill named `architecture-guardrails` is available, call the Skill tool with `architecture-guardrails` for durable architectural constraints only after the rule is settled.
+When the same correction has recurred, recommend the strongest feasible authority mechanism: an unrepresentable or derived relationship, generated output, schema, lint or CI check, canonical helper, runtime validation, then prose as the last resort. Settle the underlying rule before proposing enforcement. If `architecture-guardrails` is available, tell the user to invoke `/architecture-guardrails` for a durable architectural constraint only after the rule is settled. It is user-invoked and cannot be called by this skill.
 
 **Do not create synchronization debt as remediation.** A derived or explanatory artifact with clear deference normally needs no change or one stable source pointer. Explicitly discourage per-entry or line-number backlinks unless granular provenance solves a demonstrated ambiguity, preferably with generation or validation.
 

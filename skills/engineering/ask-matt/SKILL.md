@@ -58,6 +58,10 @@ Not feature work, just upkeep.
 - **`/test-suite-health`** audits the safety net itself when the question is whether tests deserve confidence: escaped defects despite high coverage, flakes or order dependence, pathological runtime, configuration interactions, failure containment, or readiness for a risky refactor. It measures before interpreting and keeps mutation optional and targeted. Use `/tdd` instead when writing tests for one new behavior.
 - **`/skill-ecosystem-auditor`** audits the skills themselves as a cooperating runtime when activation, user-only protection, host visibility, ownership, or handoffs across independently invocable skills are in question. Its fast integrity check catches mechanical drift; runtime selection and semantic ownership stay in the deep audit.
 
+## Settled architecture → executable guardrail
+
+After an architectural invariant is accepted and recorded in a durable authority, **`/architecture-guardrails`** turns its exact permitted, forbidden, or required relationship into enforcement that runs locally and in CI. It is user-invoked only: recommend the command and stop. Never invoke it automatically from architecture review, refactoring, health findings, dependency exploration, or a provisional preference. Use `/improve-codebase-architecture` while the shape is still being chosen, and `/knowledge-hygiene` while the current authority is unclear.
+
 ## Vocabulary underneath
 
 Two model-invoked references that run *beneath* the other skills, each the single source of truth for its vocabulary. Reach for them directly when the **words**, not the process, are the problem; or let the skills above pull them in.

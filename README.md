@@ -198,6 +198,7 @@ Skills I use daily for code work.
 **User-invoked**
 
 - **[ask-matt](./skills/engineering/ask-matt/SKILL.md)**: Ask which skill or flow fits your situation. A router over the user-invoked skills in this repo.
+- **[architecture-guardrails](./skills/engineering/architecture-guardrails/SKILL.md)**: Turn a settled architectural invariant into executable dependency or boundary enforcement that runs locally and in CI.
 - **[codebase-health](./skills/engineering/codebase-health/SKILL.md)**: Orchestrate five independent repository-health perspectives, prioritize what matters, and route the next focused investigation.
 - **[grill-with-docs](./skills/engineering/grill-with-docs/SKILL.md)**: Grilling session that also builds your project's domain model, sharpening terminology and updating `CONTEXT.md` and ADRs inline.
 - **[domain-architect-interrogator](./skills/engineering/domain-architect-interrogator/SKILL.md)**: Interrogate the domain expert (you) about a product design as a senior architect: sea-level goals, ubiquitous language, boundary stress tests, with implementation mechanics firmly black-boxed.
