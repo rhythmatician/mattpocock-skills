@@ -32,9 +32,11 @@ The audit moves from cheap to expensive:
 2. Run focused repeats, seeded order checks, state variations, and safe failure experiments.
 3. Use targeted mutation only when risk or cheap evidence justifies its cost.
 
-Dynamic checks run through one bounded TypeScript experiment runner. It preserves raw evidence but converts runner-specific TAP, JUnit, Jest/Vitest, and Stryker output into the same measured record before the agent interprets it.
+Dynamic evidence stays replayable. A seed names the value that really reached the tool, each repeat keeps only a machine report it actually changed, and every observation names the exact repository state it measured. Failed runs can still retain fresh reports, while unchanged output is called stale instead of being reassigned to a later repeat. That provenance prevents a result from looking reproducible when the command, checkout, or overwritten report says otherwise.
 
-For a runtime-facing check, it uses a [harness](https://www.aihero.dev/ai-coding-dictionary/harness) discipline: launch, doctor, drive, preserve evidence, and clean only what the run created. This catches the gap between a unit test that claims resilience and a real caller that never sees a background failure.
+Reporter detail is capability-dependent. Retry, quarantine, fixture, detailed timing, and structured mutation counts appear only when trustworthy machine evidence exposes them. Missing detail remains an explicit confidence boundary, while the native evidence survives for later inspection or a justified adapter.
+
+For a runtime-facing check, it uses [harness](https://www.aihero.dev/ai-coding-dictionary/harness) discipline to prove the real caller-visible outcome. Pre-existing dirty and ignored content stays separate from experiment residue, including leaf changes inside ordinary ignored caches. Very large ignored trees become an explicit confidence boundary. The audit never buys a clean-looking result by deleting state it cannot safely attribute.
 
 ## Common questions
 
@@ -45,6 +47,14 @@ No. Coverage shows that execution reached code. Mutation testing asks whether pl
 **Will it mutation-test the whole repository?**
 
 No. Mutation is optional and targeted. The skill enters that phase when you request it, a critical hotspot is changing, defects escape despite high coverage, or cheap diagnostics suggest weak behavioral protection. Surviving mutants are leads, not an automatic demand for one test per mutant.
+
+**What if my mutation tool is not Stryker?**
+
+The audit still preserves the native machine report and exit code when available. Structured mutant counts require a supported parser, so another tool produces an explicit normalization gap until a real consumer justifies an adapter.
+
+**Why do old experiment plans need migration?**
+
+The earlier plan format could label a run with a seed without proving the tool received it. Version 2 makes reproducibility evidence mechanical, so version 1 plans fail with a migration message instead of retaining decorative provenance.
 
 **Can it decide which feature-flag combinations are valid?**
 
@@ -58,7 +68,9 @@ The audit's primary artifact is evidence and ordered improvements. Small harness
 
 - Every finding states a measured rate, duration, seed, count, survivor, uncovered interaction, or observed failure path before interpreting it.
 - A flaky result includes the repeat count and a reproducible seed or explicit reproduction rate.
+- Every recorded seed points to the argument or environment value that reached the tool.
 - Mutation work names a narrow target and its cost instead of silently scanning the repository.
+- Repeated native reports survive at distinct artifact paths, and repository residue is separated from pre-existing dirty state.
 - Configuration gaps cite discovered axes and evidenced constraints.
 - Failure experiments verify caller-visible behavior and durable side effects, then leave no test residue behind.
 - The report names diagnostics that were not run and why.

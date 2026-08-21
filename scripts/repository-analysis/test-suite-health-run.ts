@@ -1,15 +1,22 @@
+import { createHash } from "node:crypto";
 import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
-import {
-  isPathInsideRepository,
-  writeJsonEvidence,
-} from "./evidence.ts";
+import { isPathInsideRepository, writeJsonEvidence } from "./evidence.ts";
+import { runGit } from "./git.ts";
 import { ProcessExecutionError, runProcess } from "./process.ts";
+import {
+  compareRepositoryStateChanges,
+  readRepositoryIdentity,
+  type RepositoryIdentity,
+} from "./repository-state.ts";
 
 type Diagnostic =
   | "baseline"
@@ -22,8 +29,18 @@ type Diagnostic =
 
 type Parser = "exit-code" | "jest-json" | "junit-xml" | "stryker-json" | "tap";
 
+type CapabilityGap = {
+  capability: string;
+  reason: string;
+};
+
+type SeedMechanism =
+  | { argumentIndex: number; source: "argument" }
+  | { environmentVariable: string; source: "environment" };
+
 type Experiment = {
   args: string[];
+  capabilityGaps?: CapabilityGap[];
   diagnostic: Diagnostic;
   environment?: Record<string, string>;
   executable: string;
@@ -31,16 +48,17 @@ type Experiment = {
   parser: Parser;
   reportPath?: string;
   repeats: number;
-  seed?: string;
+  seed?: SeedMechanism;
   target?: string;
   timeoutMs: number;
+  versionArgs?: string[];
   workingDirectory?: string;
 };
 
 export type TestHealthPlan = {
   experiments: Experiment[];
   repositoryPath: string;
-  schemaVersion: 1;
+  schemaVersion: 2;
 };
 
 type TestMeasurement = {
@@ -192,17 +210,38 @@ const parsePlan = (value: unknown): TestHealthPlan => {
     throw new Error("Plan must be a JSON object");
   }
   const plan = value as Partial<TestHealthPlan>;
+  if ((value as { schemaVersion?: unknown }).schemaVersion === 1) {
+    throw new Error(
+      "Plan schemaVersion 1 cannot prove seed provenance; migrate to schemaVersion 2 and point each seed to its argument or environment source",
+    );
+  }
   if (
-    plan.schemaVersion !== 1 ||
+    plan.schemaVersion !== 2 ||
     typeof plan.repositoryPath !== "string" ||
     !Array.isArray(plan.experiments)
   ) {
     throw new Error(
-      "Plan requires schemaVersion 1, repositoryPath, and experiments",
+      "Plan requires schemaVersion 2, repositoryPath, and experiments",
     );
   }
   const ids = new Set<string>();
   for (const experiment of plan.experiments) {
+    const seed = experiment?.seed as SeedMechanism | undefined;
+    const validSeed =
+      seed === undefined ||
+      (typeof seed === "object" &&
+        seed !== null &&
+        seed.source === "argument" &&
+        Number.isInteger(seed.argumentIndex) &&
+        seed.argumentIndex >= 0 &&
+        seed.argumentIndex < (experiment?.args?.length ?? 0)) ||
+      (typeof seed === "object" &&
+        seed !== null &&
+        seed.source === "environment" &&
+        typeof seed.environmentVariable === "string" &&
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(seed.environmentVariable) &&
+        typeof experiment?.environment?.[seed.environmentVariable] ===
+          "string");
     if (
       !experiment ||
       typeof experiment.id !== "string" ||
@@ -211,6 +250,31 @@ const parsePlan = (value: unknown): TestHealthPlan => {
       typeof experiment.executable !== "string" ||
       !Array.isArray(experiment.args) ||
       !experiment.args.every((arg) => typeof arg === "string") ||
+      (experiment.environment !== undefined &&
+        (!experiment.environment ||
+          typeof experiment.environment !== "object" ||
+          !Object.values(experiment.environment).every(
+            (value) => typeof value === "string",
+          ))) ||
+      (experiment.capabilityGaps !== undefined &&
+        (!Array.isArray(experiment.capabilityGaps) ||
+          !experiment.capabilityGaps.every(
+            (gap) =>
+              gap &&
+              typeof gap.capability === "string" &&
+              gap.capability.length > 0 &&
+              typeof gap.reason === "string" &&
+              gap.reason.length > 0,
+          ))) ||
+      !validSeed ||
+      (experiment.versionArgs !== undefined &&
+        (!Array.isArray(experiment.versionArgs) ||
+          experiment.versionArgs.length === 0 ||
+          !experiment.versionArgs.every((arg) => typeof arg === "string"))) ||
+      (experiment.reportPath !== undefined &&
+        typeof experiment.reportPath !== "string") ||
+      (experiment.workingDirectory !== undefined &&
+        typeof experiment.workingDirectory !== "string") ||
       !Number.isInteger(experiment.repeats) ||
       experiment.repeats < 1 ||
       experiment.repeats > 100 ||
@@ -226,13 +290,9 @@ const parsePlan = (value: unknown): TestHealthPlan => {
         "order",
         "runtime",
       ].includes(experiment.diagnostic) ||
-      ![
-        "exit-code",
-        "jest-json",
-        "junit-xml",
-        "stryker-json",
-        "tap",
-      ].includes(experiment.parser)
+      !["exit-code", "jest-json", "junit-xml", "stryker-json", "tap"].includes(
+        experiment.parser,
+      )
     ) {
       throw new Error(`Invalid experiment ${experiment?.id ?? "<unknown>"}`);
     }
@@ -250,23 +310,207 @@ const median = (values: number[]) => {
   return ((sorted[middle - 1] ?? value) + value) / 2;
 };
 
+const publicRepositoryIdentity = ({
+  dirty,
+  head,
+  stateId,
+}: RepositoryIdentity) => ({ dirty, head, stateId });
+
+const resolveSeedProvenance = (experiment: Experiment) => {
+  if (!experiment.seed) return undefined;
+  if (experiment.seed.source === "argument") {
+    return {
+      ...experiment.seed,
+      value: experiment.args[experiment.seed.argumentIndex]!,
+    };
+  }
+  return {
+    ...experiment.seed,
+    value: experiment.environment![experiment.seed.environmentVariable]!,
+  };
+};
+
+const captureToolVersion = async (options: {
+  experiment: Experiment;
+  signal?: AbortSignal;
+  workingDirectory: string;
+}) => {
+  if (!options.experiment.versionArgs) {
+    return {
+      gap: {
+        capability: "tool-version",
+        reason:
+          "No safe version argument array was configured for this executable",
+      },
+      provenance: { args: [] as string[] },
+    };
+  }
+  try {
+    const result = await runProcess({
+      args: options.experiment.versionArgs,
+      cwd: options.workingDirectory,
+      env: options.experiment.environment
+        ? { ...process.env, ...options.experiment.environment }
+        : process.env,
+      executable: options.experiment.executable,
+      maxOutputBytes: 64 * 1024,
+      signal: options.signal,
+      timeoutMs: Math.min(options.experiment.timeoutMs, 10_000),
+    });
+    const value = (result.stdout || result.stderr).trim();
+    if (result.exitCode !== 0 || value.length === 0) {
+      return {
+        gap: {
+          capability: "tool-version",
+          reason: `Configured version command exited with ${
+            result.exitCode ?? "unknown"
+          } or returned no version`,
+        },
+        provenance: { args: options.experiment.versionArgs },
+      };
+    }
+    return {
+      provenance: { args: options.experiment.versionArgs, value },
+    };
+  } catch (error) {
+    if (error instanceof ProcessExecutionError && error.kind === "cancelled") {
+      throw error;
+    }
+    return {
+      gap: {
+        capability: "tool-version",
+        reason: `Configured version command was unavailable: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      },
+      provenance: { args: options.experiment.versionArgs },
+    };
+  }
+};
+
+type ReportSourceState =
+  | { exists: false }
+  | { exists: true; fingerprint: string; writeIdentity: string }
+  | { error: string; exists: "unknown" };
+
+const readReportSourceState = (reportPath?: string): ReportSourceState => {
+  if (!reportPath || !existsSync(reportPath)) return { exists: false };
+  try {
+    const status = lstatSync(reportPath, { bigint: true });
+    const writeIdentity = [status.size, status.mtimeNs].join(":");
+    if (!status.isFile()) {
+      return {
+        exists: true,
+        fingerprint: `special:${status.mode}:${status.size}`,
+        writeIdentity,
+      };
+    }
+    return {
+      exists: true,
+      fingerprint: `blob:${createHash("sha256")
+        .update(readFileSync(reportPath))
+        .digest("hex")}`,
+      writeIdentity,
+    };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      exists: "unknown",
+    };
+  }
+};
+
+const snapshotMachineReport = (options: {
+  artifactDirectory: string;
+  before: ReportSourceState;
+  experimentId: string;
+  reportPath?: string;
+  run: number;
+}) => {
+  if (!options.reportPath) return {};
+  const after = readReportSourceState(options.reportPath);
+  if (options.before.exists === "unknown") {
+    return {
+      reportSnapshotError: `Configured report path could not be fingerprinted before this run: ${options.before.error}`,
+    };
+  }
+  if (after.exists === "unknown") {
+    return {
+      reportSnapshotError: `Configured report path could not be fingerprinted after this run: ${after.error}`,
+    };
+  }
+  if (!after.exists) {
+    return {
+      reportSnapshotError: "Configured report path was not created by this run",
+    };
+  }
+  if (
+    options.before.exists &&
+    options.before.fingerprint === after.fingerprint &&
+    options.before.writeIdentity === after.writeIdentity
+  ) {
+    return {
+      reportSnapshotError:
+        "Configured report path was unchanged from before this run; stale evidence was not attributed",
+    };
+  }
+  const reportExtension = extname(options.reportPath) || ".txt";
+  const reportArtifactPath = join(
+    options.artifactDirectory,
+    `${options.experimentId}-${options.run}-report${reportExtension}`,
+  );
+  try {
+    copyFileSync(options.reportPath, reportArtifactPath);
+    return {
+      parserText: readFileSync(reportArtifactPath, "utf8"),
+      reportArtifactPath,
+    };
+  } catch (error) {
+    return {
+      reportSnapshotError:
+        error instanceof Error ? error.message : String(error),
+    };
+  }
+};
+
 export const runTestHealthPlan = async (options: {
   outputPath: string;
   plan: TestHealthPlan;
   signal?: AbortSignal;
 }) => {
   const plan = parsePlan(options.plan);
-  const repositoryRoot = resolve(plan.repositoryPath);
+  const gitExecutable = "git";
+  const repositoryTimeoutMs = 10_000;
+  const requestedRepositoryPath = resolve(plan.repositoryPath);
+  const gitVersion = (
+    await runGit(gitExecutable, ["--version"], {
+      cwd: requestedRepositoryPath,
+      signal: options.signal,
+      timeoutMs: repositoryTimeoutMs,
+    })
+  ).trim();
+  const repositoryRoot = (
+    await runGit(gitExecutable, ["rev-parse", "--show-toplevel"], {
+      cwd: requestedRepositoryPath,
+      signal: options.signal,
+      timeoutMs: repositoryTimeoutMs,
+    })
+  ).trim();
   if (isPathInsideRepository(repositoryRoot, options.outputPath)) {
-    throw new Error(
-      "Experiment output must be outside the target repository",
-    );
+    throw new Error("Experiment output must be outside the target repository");
   }
   const artifactDirectory = join(
     dirname(resolve(options.outputPath)),
     `${basename(options.outputPath, extname(options.outputPath))}-artifacts`,
   );
   mkdirSync(artifactDirectory, { recursive: true });
+  const repositoryBefore = await readRepositoryIdentity({
+    gitExecutable,
+    includeIgnored: true,
+    root: repositoryRoot,
+    signal: options.signal,
+    timeoutMs: repositoryTimeoutMs,
+  });
   const experiments = [];
   let partial = false;
 
@@ -280,16 +524,58 @@ export const runTestHealthPlan = async (options: {
         `Experiment ${experiment.id} working directory must be inside the repository`,
       );
     }
-    if (
-      experiment.reportPath &&
-      isPathInsideRepository(repositoryRoot, experiment.reportPath)
-    ) {
+    const reportPath = experiment.reportPath
+      ? resolve(experiment.reportPath)
+      : undefined;
+    if (reportPath && isPathInsideRepository(repositoryRoot, reportPath)) {
       throw new Error(
         `Experiment ${experiment.id} report path must be outside the repository`,
       );
     }
+    const experimentRepositoryBefore = await readRepositoryIdentity({
+      gitExecutable,
+      includeIgnored: true,
+      root: repositoryRoot,
+      signal: options.signal,
+      timeoutMs: repositoryTimeoutMs,
+    });
+    const capabilityGaps = [...(experiment.capabilityGaps ?? [])];
+    for (const gap of experimentRepositoryBefore.coverageGaps) {
+      if (
+        !capabilityGaps.some(
+          (candidate) =>
+            candidate.capability === gap.capability &&
+            candidate.reason === gap.reason,
+        )
+      ) {
+        capabilityGaps.push(gap);
+      }
+      partial = true;
+    }
+    if (
+      experiment.diagnostic === "mutation" &&
+      experiment.parser !== "stryker-json"
+    ) {
+      capabilityGaps.push({
+        capability: "structured-mutation-normalization",
+        reason: `${experiment.parser} preserves native or exit-code evidence without structured mutant counts`,
+      });
+    } else if (experiment.parser === "exit-code") {
+      capabilityGaps.push({
+        capability: "native-reporter-metrics",
+        reason:
+          "The exit-code parser preserves process evidence without structured test, retry, quarantine, fixture, or detailed timing metrics",
+      });
+    }
+    const toolVersion = await captureToolVersion({
+      experiment,
+      signal: options.signal,
+      workingDirectory,
+    });
+    if (toolVersion.gap) capabilityGaps.push(toolVersion.gap);
     const runs = [];
     for (let run = 1; run <= experiment.repeats; run += 1) {
+      const reportSourceBefore = readReportSourceState(reportPath);
       const startedAt = new Date().toISOString();
       const started = performance.now();
       try {
@@ -314,23 +600,32 @@ export const runTestHealthPlan = async (options: {
         );
         writeFileSync(stdoutPath, result.stdout);
         writeFileSync(stderrPath, result.stderr);
-        const parserText = experiment.reportPath
-          ? readFileSync(experiment.reportPath, "utf8")
-          : result.stdout;
+        const reportSnapshot = snapshotMachineReport({
+          artifactDirectory,
+          before: reportSourceBefore,
+          experimentId: experiment.id,
+          reportPath,
+          run,
+        });
+        const parserText = reportSnapshot.parserText ?? result.stdout;
         let measurement: NormalizedMeasurement | undefined;
-        let normalizationError: string | undefined;
+        let normalizationError = reportSnapshot.reportSnapshotError;
         try {
-          measurement = normalizeToolOutput(experiment.parser, parserText);
+          if (!normalizationError) {
+            measurement = normalizeToolOutput(experiment.parser, parserText);
+          }
         } catch (error) {
-          partial = true;
           normalizationError =
             error instanceof Error ? error.message : String(error);
         }
+        if (normalizationError) partial = true;
         runs.push({
           durationMs,
           exitCode: result.exitCode,
           measurement,
           normalizationError,
+          reportArtifactPath: reportSnapshot.reportArtifactPath,
+          reportSnapshotError: reportSnapshot.reportSnapshotError,
           run,
           startedAt,
           stderrPath,
@@ -345,10 +640,19 @@ export const runTestHealthPlan = async (options: {
         }
         if (!(error instanceof ProcessExecutionError)) throw error;
         partial = true;
+        const reportSnapshot = snapshotMachineReport({
+          artifactDirectory,
+          before: reportSourceBefore,
+          experimentId: experiment.id,
+          reportPath,
+          run,
+        });
         runs.push({
           durationMs: Math.round(performance.now() - started),
           executionError: { kind: error.kind, message: error.message },
           exitCode: null,
+          reportArtifactPath: reportSnapshot.reportArtifactPath,
+          reportSnapshotError: reportSnapshot.reportSnapshotError,
           run,
           startedAt,
         });
@@ -361,7 +665,33 @@ export const runTestHealthPlan = async (options: {
         exitCode !== 0 ||
         (measurement?.tests?.failed ?? 0) > 0,
     ).length;
+    const experimentRepositoryAfter = await readRepositoryIdentity({
+      gitExecutable,
+      includeIgnored: true,
+      root: repositoryRoot,
+      signal: options.signal,
+      timeoutMs: repositoryTimeoutMs,
+    });
+    for (const gap of experimentRepositoryAfter.coverageGaps) {
+      if (
+        !capabilityGaps.some(
+          (candidate) =>
+            candidate.capability === gap.capability &&
+            candidate.reason === gap.reason,
+        )
+      ) {
+        capabilityGaps.push(gap);
+      }
+      partial = true;
+    }
+    const residueChanges = compareRepositoryStateChanges(
+      experimentRepositoryBefore,
+      experimentRepositoryAfter,
+    );
+    const headChanged =
+      experimentRepositoryBefore.head !== experimentRepositoryAfter.head;
     experiments.push({
+      capabilityGaps,
       diagnostic: experiment.diagnostic,
       id: experiment.id,
       provenance: {
@@ -369,11 +699,24 @@ export const runTestHealthPlan = async (options: {
         environmentKeys: Object.keys(experiment.environment ?? {}).sort(),
         executable: experiment.executable,
         parser: experiment.parser,
+        reportPath,
         repeats: experiment.repeats,
-        seed: experiment.seed,
+        seed: resolveSeedProvenance(experiment),
         target: experiment.target,
         timeoutMs: experiment.timeoutMs,
+        toolVersion: toolVersion.provenance,
         workingDirectory,
+      },
+      residue: {
+        after: publicRepositoryIdentity(experimentRepositoryAfter),
+        before: publicRepositoryIdentity(experimentRepositoryBefore),
+        changes: residueChanges,
+        cleanup:
+          residueChanges.length > 0 || headChanged
+            ? "preserved-unknown-state"
+            : "not-needed",
+        detected: residueChanges.length > 0 || headChanged,
+        headChanged,
       },
       runs,
       summary: {
@@ -385,19 +728,39 @@ export const runTestHealthPlan = async (options: {
     });
   }
 
+  const repositoryAfter = await readRepositoryIdentity({
+    gitExecutable,
+    includeIgnored: true,
+    root: repositoryRoot,
+    signal: options.signal,
+    timeoutMs: repositoryTimeoutMs,
+  });
+
   const report = JSON.parse(
     JSON.stringify({
       experiments,
       generatedAt: new Date().toISOString(),
+      provenance: { gitVersion },
+      repository: {
+        after: publicRepositoryIdentity(repositoryAfter),
+        before: publicRepositoryIdentity(repositoryBefore),
+        root: repositoryRoot,
+      },
       repositoryRoot,
-      schemaVersion: 1,
+      schemaVersion: 2,
       status: partial ? "partial" : "complete",
     }),
   ) as {
     experiments: typeof experiments;
     generatedAt: string;
+    provenance: { gitVersion: string };
+    repository: {
+      after: ReturnType<typeof publicRepositoryIdentity>;
+      before: ReturnType<typeof publicRepositoryIdentity>;
+      root: string;
+    };
     repositoryRoot: string;
-    schemaVersion: 1;
+    schemaVersion: 2;
     status: "complete" | "partial";
   };
   writeJsonEvidence(options.outputPath, report);

@@ -35,6 +35,8 @@ Model- or user-reachable (rich trigger phrasing so the model can reach for them)
 - **[test-suite-health](./test-suite-health/SKILL.md)**: Audit whether an existing test suite deserves confidence through cheap diagnostics, focused resilience and state checks, and optional targeted mutation.
 - **[domain-modeling](./domain-modeling/SKILL.md)**: Actively build and sharpen a project's domain model by challenging terms, stress-testing with scenarios, and updating `CONTEXT.md` and ADRs inline.
 - **[codebase-design](./codebase-design/SKILL.md)**: Shared discipline and vocabulary for designing deep modules: small interfaces, clean seams, testable through the interface.
+- **[graphify](./graphify/SKILL.md)**: Build and query an evidence-backed knowledge graph for code, documents, and other project content.
 - **[code-review](./code-review/SKILL.md)**: Three-axis review of the diff since a fixed point: **Standards**, **Spec**, and diff-scoped **Health Regression**, run in isolated parallel sub-agents.
+- **[preserve-futures](./preserve-futures/SKILL.md)**: Assess a bounded completed region for concrete optionality loss and hand planning consequences to the owning workflow.
 - **[resolving-merge-conflicts](./resolving-merge-conflicts/SKILL.md)**: Work through an in-progress git merge or rebase conflict hunk by hunk, resolving by intent traced to each side's primary source, then finish the operation, never `--abort`.
 - **[wizard](./wizard/SKILL.md)**: Generate an interactive bash wizard that walks a human through steps only they can perform: provisioning infrastructure, setting up credentials or CI secrets, walking an unfamiliar third-party dashboard, or running a one-off migration or cutover.
