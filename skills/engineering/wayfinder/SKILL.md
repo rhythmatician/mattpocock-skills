@@ -52,6 +52,8 @@ The whole map at low resolution, loaded once per session. Open tickets are **not
 <!-- see "Out of scope": work ruled beyond the destination; closed, never graduates -->
 ```
 
+When the effort's decisions should be argued in product terms rather than code terms, write `Call the Skill tool with "domain-voice"` into the map's **Notes** at charting time: every ticket session then holds its grilling at the domain level, in plain words.
+
 ### Tickets
 
 Each ticket is a **child issue** of the map; the tracker's issue id is its identity. Its body is the question, sized to one 100K token agent session:

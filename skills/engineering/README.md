@@ -34,6 +34,7 @@ Model- or user-reachable (rich trigger phrasing so the model can reach for them)
 - **[tdd](./tdd/SKILL.md)**: Test-driven development with a red-green-refactor loop. Builds features or fixes bugs one vertical slice at a time.
 - **[test-suite-health](./test-suite-health/SKILL.md)**: Audit whether an existing test suite deserves confidence through cheap diagnostics, focused resilience and state checks, and optional targeted mutation.
 - **[domain-modeling](./domain-modeling/SKILL.md)**: Actively build and sharpen a project's domain model by challenging terms, stress-testing with scenarios, and updating `CONTEXT.md` and ADRs inline.
+- **[domain-voice](./domain-voice/SKILL.md)**: Hold any design conversation at the domain level: redirect implementation mechanics on sight, enforce one concept one name, and ask every question in plain words.
 - **[codebase-design](./codebase-design/SKILL.md)**: Shared discipline and vocabulary for designing deep modules: small interfaces, clean seams, testable through the interface.
 - **[graphify](./graphify/SKILL.md)**: Build and query an evidence-backed knowledge graph for code, documents, and other project content.
 - **[code-review](./code-review/SKILL.md)**: Three-axis review of the diff since a fixed point: **Standards**, **Spec**, and diff-scoped **Health Regression**, run in isolated parallel sub-agents.
