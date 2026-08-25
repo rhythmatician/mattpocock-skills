@@ -90,11 +90,11 @@ Use [the committed corpus](assets/eval-corpus.json) and [fixture observations](a
 npm run skill-ecosystem:evaluate -- --corpus skills/engineering/skill-ecosystem-auditor/assets/eval-corpus.json --observations skills/engineering/skill-ecosystem-auditor/assets/eval-observations.fixture.json --output <absolute-temp-json>
 ```
 
-The committed observations are `FIXTURE` evidence. They prove the three-baseline adapter, activation order, and co-activation reporting, but they are not runtime facts about a real host or model. Replace them with `RUNTIME-OBSERVED` selections for certification.
+Committed observations are `FIXTURE` evidence: they prove the three-baseline adapter, activation order, and co-activation reporting, not runtime behavior. Certification requires `RUNTIME-OBSERVED` selections from a real host and model.
 
-For quantitative certification or CI thresholds, read [the rubric](references/rubric.md). Treat every threshold as operational policy until calibrated against the target workload. Use `npm run skill-ecosystem:tokens -- --target <skill-or-root>` only as a heuristic fallback when the target tokenizer is unavailable.
+For quantitative certification or CI thresholds, read [the rubric](references/rubric.md); treat every threshold as operational policy until calibrated against the target workload. Use `npm run skill-ecosystem:tokens -- --target <skill-or-root>` only when the target tokenizer is unavailable.
 
-This step is complete when every empirical metric traces to a saved corpus and observed run. Unavailable dimensions remain `not measured`.
+This step is complete when every empirical metric traces to a saved corpus and observed run; unavailable dimensions remain `not measured`.
 
 ## 6. Report and remediate
 
@@ -105,8 +105,8 @@ Lead with the operational outcome. Report:
 - findings ordered by blocker, error, warning, then information;
 - measured trigger confusion, ownership boundaries, and composition chains;
 - minimal remediation and affected owner for each blocker or error;
-- machine-readable results conforming to [the audit result schema](assets/audit-result.schema.json) when file output or CI integration is requested. Use [the audit result fixture](assets/audit-result.fixture.json) as a minimal known-valid contract example.
+- machine-readable results conforming to [the audit result schema](assets/audit-result.schema.json) when file output or CI integration is requested, with [the fixture](assets/audit-result.fixture.json) as a known-valid example.
 
-Classify evidence as `SPEC`, `HOST-DOCUMENTED`, `RUNTIME-OBSERVED`, `FIELD-REPORTED`, `REPO`, or `HEURISTIC`. Include a source range or URL, observed value, threshold when applicable, impact, and minimal remediation. Never let an aggregate score conceal a blocker.
+Classify evidence as `SPEC`, `HOST-DOCUMENTED`, `RUNTIME-OBSERVED`, `FIELD-REPORTED`, `REPO`, or `HEURISTIC`, each with a source range or URL, observed value, threshold when applicable, impact, and minimal remediation. Never let an aggregate score conceal a blocker.
 
 The package sidecar is [agents/openai.yaml](agents/openai.yaml). The audit is complete when every claim is reproducible from cited evidence, every blocker is visible independent of scores, and every unverified claim is labeled.
