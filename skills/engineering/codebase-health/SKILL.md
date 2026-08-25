@@ -35,9 +35,9 @@ Record one snapshot before dispatch:
 }
 ```
 
-Use the shared TypeScript repository-analysis substrate when it is available to establish repository state and discover existing survey artifacts. Reuse a normalized artifact only when its repository root, HEAD, dirty state, state identity, diagnostic, and schema version match this run. Record rejected artifacts and the mismatch. Never rerun an expensive analyzer merely to change presentation.
+Use the shared TypeScript repository-analysis substrate when it is available to establish repository state and discover existing survey artifacts. Reuse a normalized artifact only when its repository root, HEAD, dirty state, state identity, diagnostic, and schema version match this run; record rejected artifacts and the mismatch. Never rerun an expensive analyzer merely to change presentation.
 
-Create one fresh evidence directory under the OS temp directory. Child artifacts, task briefs, and normalized returns live there, outside the target repository. Preserve them through cleanup for the life of this run. Do not create a durable health report unless the user asks.
+Create one fresh evidence directory under the OS temp directory. Child artifacts, task briefs, and normalized returns live there for the life of this run. Do not create a durable health report unless the user asks.
 
 If the worktree changes after dispatch, finish the current children against their recorded snapshot, mark the run `stale`, and do not silently combine new-state evidence with old-state evidence. Ask whether to rerun only when the change could alter the priority judgment.
 
@@ -53,7 +53,7 @@ Call the Skill tool in five isolated, read-only subagents, once for each child:
 
 Dispatch all five in parallel when the harness supports it. Otherwise run them sequentially with the same task contract and without forwarding sibling conclusions. Every child receives the same intent, depth, snapshot, evidence-directory inventory, and normalization contract. A child may reuse matching evidence from the inventory, but it never receives another child's interpretation before returning its own result.
 
-The architecture child runs `improve-codebase-architecture` in **health-lens mode**: ground and qualify structural candidates, then return structured findings. It does not write the visual report or start the grilling loop. Ground the full trigger-to-outcome path before escalating an architecture candidate. A metric alone is never an architectural model.
+The architecture child runs `improve-codebase-architecture` in **health-lens mode**: ground and qualify structural candidates, then return structured findings. It does not write the visual report or start the grilling loop. Ground the full trigger-to-outcome path before escalating an architecture candidate; a metric alone is never an architectural model.
 
 Tell each child to return exactly one JSON object, not prose for the lead to scrape:
 
@@ -99,7 +99,7 @@ Tell each child to return exactly one JSON object, not prose for the lead to scr
 }
 ```
 
-Measured numbers remain JSON numbers inside `evidence.value`. Preserve a child's richer native report as an artifact and map it to this envelope inside that child's context. Keep `findings` empty when the lens finds no important problem. A partial or clean result is evidence, not a prompt to invent findings.
+Measured numbers remain JSON numbers inside `evidence.value`. Preserve a child's richer native report as an artifact and map it to this envelope inside that child's context. Keep `findings` empty when the lens finds no important problem: a partial or clean result is evidence, not a prompt to invent findings.
 
 ## 4. Correlate without flattening
 
@@ -121,12 +121,12 @@ Act as the lead diagnostician, not a neutral aggregator. Judge each ledger item 
 
 | Judgment | Meaning |
 | --- | --- |
-| **Prioritize** | Strong evidence and practical consequence justify a focused next action now. |
-| **Investigate** | Plausible and consequential, but one named uncertainty must be resolved first. |
-| **Watch** | Real signal with low current leverage or a condition that has not yet materialized. |
-| **Clear** | Considered and rejected, contradicted, already controlled, or irrelevant to this repository. |
+| Prioritize | Strong evidence and practical consequence justify a focused next action now. |
+| Investigate | Plausible and consequential, but one named uncertainty must be resolved first. |
+| Watch | Real signal with low current leverage or a condition that has not yet materialized. |
+| Clear | Considered and rejected, contradicted, already controlled, or irrelevant here. |
 
-Elevate cross-lens mechanisms, such as churn plus a leaking architectural secret plus weak tests, when the evidence supports the same change risk. Do not reward finding count. State why every top item outranks the strongest alternative, and state why dismissed candidates were cleared.
+Elevate cross-lens mechanisms, such as churn plus a leaking architectural secret plus weak tests, when the evidence supports the same change risk; judge mechanisms, not finding count. State why every top item outranks the strongest alternative, and why dismissed candidates were cleared.
 
 The judgment step is complete when each important candidate has one category, its supporting and disagreeing lenses, the consequential evidence, the uncertainty boundary, and one owner for the next step.
 
@@ -140,8 +140,8 @@ Default to the few highest-leverage findings. Report:
 4. capability gaps and expensive diagnostics deliberately skipped;
 5. ephemeral artifact locations.
 
-Recommend the smallest focused follow-up to the owning skill. Use `maintenance-risk` for deeper empirical targeting, `improve-codebase-architecture` for a chosen structural candidate and its user-facing report, `test-suite-health` for confidence experiments, `knowledge-hygiene` for authority remediation planning, and `feedback-loop-health` for latency or human-ceremony work. Feature implementation returns to the normal spec and implementation flow.
+Recommend the smallest focused follow-up to the owning skill: `maintenance-risk` for deeper empirical targeting, `improve-codebase-architecture` for a chosen structural candidate and its user-facing report, `test-suite-health` for confidence experiments, `knowledge-hygiene` for authority remediation planning, `feedback-loop-health` for latency or human-ceremony work. Feature implementation returns to the normal spec flow.
 
-`architecture-guardrails` is a separate user-invoked downstream workflow. Never invoke it automatically. If a settled decision needs enforcement, tell the user it is available and let them choose it explicitly.
+`architecture-guardrails` is user-invoked only: never invoke it automatically; if a settled decision needs enforcement, tell the user it is available.
 
-The run ends with judgment and handoff. It does not repair the repository, install audit dependencies, or turn ephemeral evidence into a permanent audit binder unless the user asks.
+The run ends with judgment and handoff. It does not repair the repository, install audit dependencies, or turn ephemeral evidence into a permanent binder unless asked.

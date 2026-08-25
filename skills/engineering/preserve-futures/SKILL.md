@@ -261,17 +261,11 @@ Use this shape:
 **Current action:** none | <planning consequence if one exists>
 ```
 
-Avoid duplicating observations already recorded on the anchor.
-
-If the project has no writable anchor, include the observation in the checkpoint output instead.
+Skip observations already recorded on the anchor; with no writable anchor, include the observation in the checkpoint output instead.
 
 ### Candidate new futures
 
-Occasionally a checkpoint reveals a major plausible future that wasn't registered.
-
-Don't create an anchor automatically.
-
-Report it as a **candidate future anchor** only when:
+Occasionally a checkpoint reveals a major plausible future that wasn't registered. Report it as a **candidate future anchor**, without creating one, only when:
 
 * the future is concrete rather than imaginable,
 * the evidence shows it may materially affect architecture,
@@ -290,15 +284,11 @@ Return one of:
 * **release**:  no finding requires intervention before downstream fan-out;
 * **hold for planning**:  at least one `protect before fan-out` or unresolved handoff should be addressed before downstream work proceeds.
 
-This is a planning signal, not a code gate.
-
-Wayfinder decides how to modify dependencies, create tickets, or alter the route.
+This is a planning signal, not a code gate: Wayfinder decides how to modify dependencies, create tickets, or alter the route.
 
 ## Routing
 
-Route only when the evidence requires another skill or a fresh session.
-
-Package every handoff with:
+Route only when the evidence requires another skill or a fresh session. Package every handoff with:
 
 * bounded scope,
 * concrete finding,

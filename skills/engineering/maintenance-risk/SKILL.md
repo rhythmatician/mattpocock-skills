@@ -45,11 +45,11 @@ Rank within this repository. Use observations, percentiles supplied by analyzers
 
 For each high-value candidate:
 
-1. **Understand before critiquing.** Trace the subsystem and runtime role from source. A metric nominates an investigation target; it does not explain why the code has its current shape.
-2. **Separate fact from interpretation.** Preserve the measured values verbatim, then state the architectural meaning as a distinct interpretation.
-3. **Look where static edges stop.** When temporal coupling has no matching mechanical dependency, or a finding depends on an unseen seam, inspect wire formats, schemas, configuration, conventions, cross-language consumers, lifecycle timing, and external-library behavior.
-4. **Prove the consequential fact cheaply.** If one testable claim determines whether the risk is real, run a focused script, test, or reproduction. Do not promote an unrun explanation to proof.
-5. **Treat dead code as a candidate.** Reachability evidence can nominate a fossil adapter, queue, factory, compatibility path, or stale flag. Confirm its role and history before calling the architecture dead.
+1. Understand before critiquing. Trace the subsystem and runtime role from source. A metric nominates an investigation target; it does not explain why the code has its current shape.
+2. Separate fact from interpretation. Preserve the measured values verbatim, then state the architectural meaning as a distinct interpretation.
+3. Look where static edges stop. When temporal coupling has no matching mechanical dependency, or a finding depends on an unseen seam, inspect wire formats, schemas, configuration, conventions, cross-language consumers, lifecycle timing, and external-library behavior.
+4. Prove the consequential fact cheaply. If one testable claim determines whether the risk is real, run a focused script, test, or reproduction. Do not promote an unrun explanation to proof.
+5. Treat dead code as a candidate. Reachability evidence can nominate a fossil adapter, queue, factory, compatibility path, or stale flag. Confirm its role and history before calling the architecture dead.
 
 Mechanical Graphify edges can support hard dependency findings. `INFERRED` and `AMBIGUOUS` edges are investigation clues only.
 Use the traced subsystem model to assess suspicious dependency direction; graph centrality alone cannot establish which direction is architecturally correct.
