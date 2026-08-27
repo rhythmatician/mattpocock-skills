@@ -23,7 +23,7 @@ Create a fresh OS temp directory. Keep plans, raw command output, timings, and t
 
 ## 1. Survey before execution
 
-Resolve `<skills-root>` by walking up from this installed skill, then run:
+Resolve `<skills-root>` by first resolving this skill's real path (follow any junction or symlink to its target), then walking up from that real path to the `package.json` containing `feedback-loop-health:survey`. If the walk fails, record a `harness-gap`; never replace missing evidence with intuition. Then run:
 
 ```text
 <skills-root>/scripts/repository-analysis/feedback-loop-health-survey.ts

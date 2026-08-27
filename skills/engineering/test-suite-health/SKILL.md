@@ -26,7 +26,7 @@ Run the shared TypeScript survey before test execution or new tool installation:
   --output <temp-directory>/survey.json
 ```
 
-Resolve `<skills-root>` by walking up from this skill's installed path. Use the skills repository's package manager and existing dependencies to execute the script. If the script or its runtime is unavailable, record a `harness-gap`; never replace missing evidence with intuition.
+Resolve `<skills-root>` by first resolving this skill's real path (follow any junction or symlink to its target), then walking up from that real path to the `package.json` containing `test-suite-health:survey`. Use the skills repository's package manager and existing dependencies to execute the script. If the script or its runtime is unavailable, record a `harness-gap`; never replace missing evidence with intuition.
 
 Read the normalized JSON. It inventories test/source/configuration files, test tooling and capabilities, skips/focus/quarantine markers, assertionless candidates, environment axes, failure-path signals, and source-to-test co-evolution candidates. Treat static matches as investigation leads, not confirmed defects.
 

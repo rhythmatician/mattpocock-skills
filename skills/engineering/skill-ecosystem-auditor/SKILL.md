@@ -25,7 +25,7 @@ This step is complete when the target, host matrix, available evidence, and perm
 
 ## 1. Run the cheap integrity check
 
-Resolve this skill's repository root by walking upward from `SKILL.md` to the `package.json` containing `skill-ecosystem:check`. Create a fresh output path outside the target repository, then run:
+Resolve this skill's repository root. First resolve the real path of `SKILL.md` (follow any junction or symlink to its target), then walk upward from that real path to the `package.json` containing `skill-ecosystem:check`. If the walk fails, report the integrity check as unavailable and stop. Create a fresh output path outside the target repository, then run:
 
 ```text
 npm run skill-ecosystem:check -- --repo <absolute-target> --output <absolute-temp-json>

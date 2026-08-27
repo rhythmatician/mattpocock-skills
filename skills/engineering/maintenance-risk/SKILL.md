@@ -16,7 +16,7 @@ Find where repository evidence shows that change is unusually risky, expensive, 
 
 ## Run the survey
 
-1. Resolve this skill's repository root by walking upward from `SKILL.md` to the `package.json` containing `maintenance-risk:survey`.
+1. Resolve this skill's repository root. First resolve the real path of `SKILL.md` (follow any junction or symlink to its target), then walk upward from that real path to the `package.json` containing `maintenance-risk:survey`. If the walk fails, report `survey-runner` as unavailable and stop.
 2. Pick `standard` depth unless the user asked for a quick scan or deep history. The depth bounds history, analyzer output, and runtime. It never changes the meaning of a metric.
 3. Create a fresh output path outside the target repository, under the OS temp directory.
 4. Run:
