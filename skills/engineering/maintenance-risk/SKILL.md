@@ -39,13 +39,15 @@ The survey step is complete when all six evidence sets have an explicit status a
 - dependency pathology;
 - dead architecture.
 
+**The survey is a hard gate.** Do not begin interpretation until you have read the survey JSON produced by step 4. If the runner cannot be resolved, report `survey-runner` as unavailable and stop; do not substitute a manual analysis. Never re-derive by hand what the survey measures deterministically. In particular, do not reconstruct a dependency or import graph by grepping `import`/`from` across the repository: dependency pathology comes from the survey's Graphify/Omen evidence, and a bounded or unavailable phase is reported as such, not replaced with model-calculated metrics.
+
 ## Interpret the evidence
 
 Rank within this repository. Use observations, percentiles supplied by analyzers, and convergence between phases. A universal complexity or file-size cutoff is not an architectural verdict.
 
 For each high-value candidate:
 
-1. Understand before critiquing. Trace the subsystem and runtime role from source. A metric nominates an investigation target; it does not explain why the code has its current shape.
+1. Understand before critiquing. Trace the subsystem and runtime role from source **only for a candidate the survey already flagged**. A metric nominates an investigation target; it does not explain why the code has its current shape. Tracing a flagged candidate is not permission to re-run the whole survey by hand.
 2. Separate fact from interpretation. Preserve the measured values verbatim, then state the architectural meaning as a distinct interpretation.
 3. Look where static edges stop. When temporal coupling has no matching mechanical dependency, or a finding depends on an unseen seam, inspect wire formats, schemas, configuration, conventions, cross-language consumers, lifecycle timing, and external-library behavior.
 4. Prove the consequential fact cheaply. If one testable claim determines whether the risk is real, run a focused script, test, or reproduction. Do not promote an unrun explanation to proof.
