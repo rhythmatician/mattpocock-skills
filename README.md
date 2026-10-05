@@ -54,6 +54,12 @@ npx skills@latest add mattpocock/skills
 
 Pick the skills you want, and which coding agents to install them on. **The installer lets you choose which skills to take, so make sure `setup-matt-pocock-skills` is one of them.**
 
+If you are installing a fork into Codex globally, replace the repository with your fork and run:
+
+```bash
+npx skills@latest add <owner>/<repo> --global --agent codex --copy
+```
+
 A native Codex plugin is on the roadmap (see [`.agents/adr/0002-ship-as-a-claude-code-plugin.md`](./.agents/adr/0002-ship-as-a-claude-code-plugin.md)).
 
 </details>
