@@ -1,0 +1,3 @@
+interface:
+  display_name: "Knowledge Hygiene"
+  short_description: "Audit duplicate authority and stale knowledge"
