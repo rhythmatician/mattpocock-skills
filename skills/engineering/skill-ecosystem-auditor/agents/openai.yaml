@@ -1,0 +1,3 @@
+interface:
+  display_name: "Skill Ecosystem Auditor"
+  short_description: "Audit multi-skill runtime safety"
