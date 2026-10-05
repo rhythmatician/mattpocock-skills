@@ -56,6 +56,7 @@ A starting situation that generates work, then merges onto the main flow.
 
 Not feature work, just upkeep.
 
+- **`/maintenance-risk`** measures where repository evidence says change is unusually risky: temporal coupling, churn and complexity hotspots, wide changes, cognitive complexity, dependency pathology, and candidate dead architecture. Use it to nominate and rank targets. Measurements point at an area; they do not decide its module shape.
 - **`/knowledge-hygiene`** audits the repository's memory when current truth is unclear: stale docs, conflicting agent instructions, duplicate authority, temporary state in durable files, or code and docs independently defining the same fact. It learns the repository's own authority model, reports evidence-backed candidates, and leaves remediation for a separately approved pass.
 - **`/preserve-futures`** is a periodic checkpoint after a bounded region of work completes. It looks for concrete optionality loss and future-sensitive evidence, then reports planning consequences to `/wayfinder` rather than changing the roadmap or repairing code itself.
 
