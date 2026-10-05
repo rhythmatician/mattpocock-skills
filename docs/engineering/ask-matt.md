@@ -17,6 +17,7 @@ You invoke this by typing `/ask-matt`; the agent won't reach for it on its own.
 | A focused upkeep question | `/maintenance-risk` for measured hotspot ranking; [improve-codebase-architecture](https://aihero.dev/skills-improve-codebase-architecture) for a grounded survey of module secrets, leaking agreements, and deepening shapes; `/test-suite-health` for confidence in the safety net; `/knowledge-hygiene` for conflicting repository truth |
 | An accepted architectural rule needs mechanical enforcement | `/architecture-guardrails`, a user-invoked downstream step that the router recommends but never starts |
 | A long session and a decision about the [context](https://www.aihero.dev/ai-coding-dictionary/context) | The ordered tree over the five options at a phase boundary |
+| Several installed skills may collide or hand work off unsafely | [skill-ecosystem-auditor](https://aihero.dev/skills-skill-ecosystem-auditor), which audits activation, ownership, host visibility, and composition across the set |
 | A skill you have already picked | Nothing useful. Invoke that skill directly. |
 
 ## Prerequisites
@@ -33,7 +34,7 @@ The skill's leading word is **flow**, a path *through* the skills rather than a 
 - **On-ramps**, for a situation that generates work and then merges onto the main flow: incoming bug reports, something broken, or an effort too foggy and too large to hold in one session.
 - **Codebase health**, periodic diagnostics with separate jobs: measure maintenance risk, inspect module shape, audit test confidence, or reconcile repository truth.
 - **Decision enforcement**, after architecture is settled and recorded: `/architecture-guardrails` turns one exact relationship into a local and CI check. The router can recommend this user-invoked skill, but no skill starts it automatically.
-- **Standalones**, which sit off every flow and which you use on their own: the prototype, the questionnaire, the research run.
+- **Standalones**, which sit off every flow and which you use on their own: the prototype, the questionnaire, the research run, or an audit of the installed skill ecosystem itself.
 - **A vocabulary layer underneath**, the two references the other skills pull in when the words rather than the process are the problem.
 
 ## The phase boundary
