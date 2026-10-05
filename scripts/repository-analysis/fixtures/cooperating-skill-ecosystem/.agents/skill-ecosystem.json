@@ -1,0 +1,15 @@
+{
+  "version": "1",
+  "edges": [
+    { "from": "workflow-router", "kind": "invokes", "to": "interrogate" },
+    { "from": "workflow-router", "kind": "may-invoke", "to": "architect" },
+    { "from": "workflow-router", "kind": "invokes", "to": "create-verification-skill" },
+    { "from": "workflow-router", "kind": "invokes", "to": "maintain-verification-skill" },
+    { "from": "interrogate", "kind": "reads", "to": "principle-build-the-lever" },
+    { "from": "architect", "kind": "reads", "to": "principle-build-the-lever" },
+    { "from": "create-verification-skill", "kind": "reads", "to": "principle-build-the-lever" },
+    { "from": "maintain-verification-skill", "kind": "reads", "to": "principle-build-the-lever" },
+    { "from": "create-verification-skill", "kind": "produces", "to": "project-verification" },
+    { "from": "maintain-verification-skill", "kind": "writes", "to": "project-verification" }
+  ]
+}

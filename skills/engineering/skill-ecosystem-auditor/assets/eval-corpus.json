@@ -1,0 +1,71 @@
+{
+  "version": "1",
+  "repository": "rhythmatician/mattpocock-skills",
+  "cases": [
+    {
+      "id": "positive-release-audit",
+      "category": "positive",
+      "prompt": "Audit this installed skill ecosystem for trigger and ownership problems before release.",
+      "expected_skills": ["skill-ecosystem-auditor"]
+    },
+    {
+      "id": "negative-test-confidence",
+      "category": "negative",
+      "prompt": "Are these existing tests trustworthy enough for a risky refactor?",
+      "expected_skills": ["test-suite-health"],
+      "forbidden_skills": ["skill-ecosystem-auditor"]
+    },
+    {
+      "id": "near-neighbor-write-skill",
+      "category": "near-neighbor",
+      "prompt": "Rewrite this one SKILL.md so its context pointer is sharper.",
+      "expected_skills": ["writing-for-agents"],
+      "forbidden_skills": ["skill-ecosystem-auditor"]
+    },
+    {
+      "id": "paraphrase-cooperating-commands",
+      "category": "paraphrase",
+      "prompt": "Do these independently selectable commands cooperate cleanly, or are two of them trying to own the same transition?",
+      "expected_skills": ["skill-ecosystem-auditor"]
+    },
+    {
+      "id": "underspecified-double-activation",
+      "category": "underspecified",
+      "prompt": "Why did both skills fire?",
+      "expected_skills": ["skill-ecosystem-auditor"]
+    },
+    {
+      "id": "irrelevant-ecosystem-keyword",
+      "category": "irrelevant-keyword",
+      "prompt": "Explain how a wetland ecosystem recovers after a flood.",
+      "expected_skills": [],
+      "forbidden_skills": ["skill-ecosystem-auditor"]
+    },
+    {
+      "id": "composition-audit-and-rewrite",
+      "category": "composition",
+      "prompt": "Audit the handoff graph, then sharpen the agent-facing instructions that cause the ownership collision.",
+      "expected_skills": ["skill-ecosystem-auditor", "writing-for-agents"],
+      "expectations": {
+        "activation_order": ["skill-ecosystem-auditor", "writing-for-agents"]
+      }
+    },
+    {
+      "id": "lifecycle-user-only",
+      "category": "lifecycle",
+      "prompt": "Verify that user-only skills stay out of autonomous selection before and after compaction.",
+      "expected_skills": ["skill-ecosystem-auditor"]
+    },
+    {
+      "id": "external-cooperating-fixture",
+      "category": "composition",
+      "prompt": "Audit this router, its independently invocable specialists, their shared principle, and a generated project-local verification skill.",
+      "expected_skills": ["skill-ecosystem-auditor"],
+      "metadata": {
+        "fixture": "scripts/repository-analysis/fixtures/cooperating-skill-ecosystem",
+        "precedent": "cursor/plugins/pstack",
+        "host_assumptions": "none"
+      }
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Skill Trigger Evaluation Corpus",
+  "type": "object",
+  "required": ["version", "cases"],
+  "properties": {
+    "version": { "type": "string" },
+    "repository": { "type": ["string", "null"] },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "prompt", "expected_skills"],
+        "properties": {
+          "id": { "type": "string" },
+          "category": { "enum": ["positive", "negative", "near-neighbor", "paraphrase", "underspecified", "irrelevant-keyword", "composition", "lifecycle"] },
+          "prompt": { "type": "string" },
+          "expected_skills": { "type": "array", "items": { "type": "string" } },
+          "forbidden_skills": { "type": "array", "items": { "type": "string" } },
+          "expected_owner": { "type": ["string", "null"] },
+          "expectations": {
+            "type": "object",
+            "properties": {
+              "activation_order": { "type": "array", "items": { "type": "string" } },
+              "omitted_skills": { "type": "array", "items": { "type": "string" } },
+              "lifecycle": { "type": "object" },
+              "host": { "type": ["string", "null"] },
+              "model": { "type": ["string", "null"] }
+            },
+            "additionalProperties": true
+          },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
