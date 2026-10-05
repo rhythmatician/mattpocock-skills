@@ -56,6 +56,8 @@ A starting situation that generates work, then merges onto the main flow.
 
 Not feature work, just upkeep.
 
+- **`/preserve-futures`** is a periodic checkpoint after a bounded region of work completes. It looks for concrete optionality loss and future-sensitive evidence, then reports planning consequences to `/wayfinder` rather than changing the roadmap or repairing code itself.
+
 - **`/improve-codebase-architecture`** runs whenever you have a spare moment to keep the codebase good for agents to operate in. It surfaces **deepening opportunities**; picking one _generates an idea_ you can take into the main flow at `/grill-with-docs`. It's the survey that finds the candidates; **`/codebase-design`** (below) is the bench you design the chosen one on.
 
 ## Vocabulary underneath
