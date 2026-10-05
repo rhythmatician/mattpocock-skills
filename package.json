@@ -12,6 +12,7 @@
     "changeset": "changeset",
     "version": "changeset version && node scripts/sync-plugin-version.mjs",
     "check-plugin-version": "node scripts/sync-plugin-version.mjs --check",
+    "maintenance-risk:survey": "node scripts/repository-analysis/run-node-with-userinfo-preflight.cjs node_modules/tsx/dist/cli.mjs scripts/repository-analysis/maintenance-risk-survey.ts",
     "test": "node scripts/repository-analysis/run-node-with-userinfo-preflight.cjs --import tsx --test scripts/repository-analysis/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
