@@ -49,6 +49,13 @@ codex plugin add mattpocock-skills@mattpocock
 
 Updates itself at startup.
 
+If you are installing a fork into Codex globally, replace the repository with your fork and run:
+
+```bash
+npx skills@latest add <owner>/<repo> --global --agent codex --copy
+```
+
+
 </details>
 
 <details>

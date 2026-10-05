@@ -1,2 +1,6 @@
 node_modules
 .claude
+.tokensave/
+tmp/
+graphify-out/
+.vscode/settings.json
