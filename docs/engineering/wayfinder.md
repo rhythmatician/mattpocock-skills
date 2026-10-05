@@ -4,6 +4,8 @@
 
 It plans and does not build. Every ticket asks a question, and the answer is a decision, not a slice of a build. The map is finished when nothing is left to decide before someone builds the thing. This rule separates a wayfinder ticket from an ordinary implementation [ticket](https://www.aihero.dev/ai-coding-dictionary/ticket), and it is the rule agents break most often. When the map clears, wayfinder hands off and does not continue into code.
 
+`/wayfinder graph` adds a read-only topology view for larger GitHub maps. It regenerates Mermaid or GraphML directly from native sub-issue and blocking relationships, so the visualization is a disposable snapshot and GitHub Issues remains the only planning truth.
+
 ## When to reach for it
 
 You invoke this by typing `/wayfinder`; the [agent](https://www.aihero.dev/ai-coding-dictionary/agent) won't reach for it on its own.
@@ -17,6 +19,7 @@ It is the heaviest flow in the set, so the trigger is narrow. The effort must be
 | A thread where the deciding is already done | [to-spec](https://aihero.dev/skills-to-spec): skip straight past the map |
 | A cleared wayfinder map | [to-spec](https://aihero.dev/skills-to-spec), then [to-tickets](https://aihero.dev/skills-to-tickets) and [implement](https://aihero.dev/skills-implement) |
 | An existing session that has already grown too big | say "hand off to `/wayfinder`" ([handoff](https://aihero.dev/skills-handoff) bridges into a map as well as out of one) |
+| A GitHub map whose frontier and parallel branches are hard to see | `/wayfinder graph`, optionally with a map issue number |
 
 Greenfield is not a requirement. People use wayfinder routinely on legacy and half-built codebases, and it can be more useful there, because much of the fog is "what is already true here" rather than "what should we do".
 
@@ -38,6 +41,12 @@ The map has four sections:
 - **Out of scope.** Work beyond the destination. Fog only gathers *toward* the destination, so out-of-scope work stays closed and never graduates.
 
 The **frontier** is the set of open, unblocked, unclaimed tickets (the edge of the known). A session claims a ticket by assigning it to itself before it does any work. The assignee *is* the claim, so concurrent sessions skip that ticket. Sessions refer to tickets by name, never by a bare `#42`, because a wall of issue numbers is hard to read in narration.
+
+## The derived graph
+
+Graph mode recursively follows GitHub sub-issues and reads each issue's native blockers. Hierarchy and execution dependency stay separate: dotted edges mean parent/sub-issue membership, while solid `blocks` edges point from prerequisite to blocked issue. Nodes carry issue state, Wayfinder role, assignment, and a link back to GitHub; non-Wayfinder delivery issues and outside-map blockers remain visible rather than being silently discarded.
+
+Mermaid is the quick, pasteable view GitHub can render. GraphML carries the same internal graph into yEd or yEd Live for automatic layout. Each run reads current GitHub state. A cycle, ambiguous map selection, or inaccessible relationship stops the render; an outside-map blocker is included with a warning.
 
 ## The four decision-ticket types
 
@@ -72,7 +81,7 @@ This is the most-reported failure with this skill, and a real gap in the skill c
 This question is verbatim from a user report, and others report the same outcome. By default, wayfinder plans comprehensively. When later tickets rest on assumptions that earlier tickets invalidate, the map falls into the waterfall trap that critics accuse the skill of. Two things help. First, scope the map to a bounded destination, not to the whole product. Users report that maps scoped to one defined epic behave better than a sprawling "implement V1". The goal is to ship small increments, not to plan something very big. Second, [prototype](https://www.aihero.dev/ai-coding-dictionary/prototyping) aggressively. The route stays current because cheap concrete artifacts expose uncertainty before implementation depends on it. Wayfinder is "prototypemaxxing", not "planmaxxing".
 
 **Can I work several tickets in parallel?**
-The frontier shows you which tickets you can take, and blocking edges make parallel work safe on paper. In practice, one ticket at a time is the safer default. If you work two grilling tickets at once, one session can ask you a question you just answered in the other, because the sessions share no [context](https://www.aihero.dev/ai-coding-dictionary/context). Prototype tickets have a known gap too. One user reported an agent that built three UI variations, chose one itself, and closed the ticket. That choice is yours, and the skill does not yet say so clearly enough. If you do run tickets in parallel, review the dependency graph yourself first.
+The frontier shows you which tickets you can take, and blocking edges make parallel work safe on paper. In practice, one ticket at a time is the safer default. If you work two grilling tickets at once, one session can ask you a question you just answered in the other, because the sessions share no [context](https://www.aihero.dev/ai-coding-dictionary/context). Prototype tickets have a known gap too. One user reported an agent that built three UI variations, chose one itself, and closed the ticket. That choice is yours, and the skill does not yet say so clearly enough. If you do run tickets in parallel, run `/wayfinder graph` first and inspect the solid dependency edges.
 
 **Do I have to use GitHub Issues?**
 No. Any issue tracker works. GitHub has the best support, because its native sub-issues and blocking relationships make the frontier visible without opening the map. People also use GitLab, Linear, Jira and local markdown. There are two caveats. On a tracker with no native blocking, wayfinder infers the dependency graph from text, and you must correct it by hand. Local markdown puts the artifacts in your repo, which is not recommended, because material stored in the repo tends to persist by accident. Open-source maintainers hit the opposite problem (public trackers fill up with agent-generated planning tickets) and often choose local markdown anyway.
@@ -91,6 +100,7 @@ It is this skill. v1.1 renamed it to `wayfinder`, and you invoke it as `/wayfind
 - The destination is written down and agreed before a single ticket exists.
 - Every open ticket reads as a question. Any ticket that reads "build the X" is either mis-typed or belongs downstream of the map.
 - You can look at your tracker and see which tickets are takeable without opening the map, because native blocking shows the frontier.
+- `/wayfinder graph` shows hierarchy and blockers as different edge types, links every node to its issue, and changes when GitHub changes without a second file to maintain.
 - A session resolves one ticket, posts the answer as a resolution comment, closes it, and adds one line to the map's *Decisions so far*. Then it stops.
 - **Not yet specified** shrinks over time. When fog graduates into a ticket, it leaves that section and does not appear in both places.
 - When the opening breadth-first grill finds no fog at all, the skill stops and tells you the effort is small enough to skip the map.
