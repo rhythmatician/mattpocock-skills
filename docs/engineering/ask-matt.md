@@ -15,6 +15,7 @@ You invoke this by typing `/ask-matt`; the agent won't reach for it on its own.
 | Two skills that look interchangeable | The line between them, and it is usually one concrete test rather than a matter of taste. [grill-me](https://aihero.dev/skills-grill-me) or [grill-with-docs](https://aihero.dev/skills-grill-with-docs) turns on whether you are in a working directory; [grill-with-docs](https://aihero.dev/skills-grill-with-docs) or [wayfinder](https://aihero.dev/skills-wayfinder) turns on whether the effort fits one session |
 | Broad codebase health | `/codebase-health` for a single prioritized view across maintenance risk, architecture, test confidence, repository knowledge, and feedback latency |
 | A focused upkeep question | `/maintenance-risk` for measured hotspot ranking; [improve-codebase-architecture](https://aihero.dev/skills-improve-codebase-architecture) for a grounded survey of module secrets, leaking agreements, and deepening shapes; `/test-suite-health` for confidence in the safety net; `/knowledge-hygiene` for conflicting repository truth |
+| An accepted architectural rule needs mechanical enforcement | `/architecture-guardrails`, a user-invoked downstream step that the router recommends but never starts |
 | A long session and a decision about the [context](https://www.aihero.dev/ai-coding-dictionary/context) | The ordered tree over the five options at a phase boundary |
 | A skill you have already picked | Nothing useful. Invoke that skill directly. |
 
@@ -26,11 +27,12 @@ The tracker-dependent routes (triage, `to-spec`, `to-tickets`, `implement`) assu
 
 ## Flows, not skills
 
-The skill's leading word is **flow**, a path *through* the skills rather than a single skill. When you name your situation, the router places you at a step on a flow. That is a different answer from "here is the skill that matches your keywords". There are five kinds of route, and the skill itself describes them in full:
+The skill's leading word is **flow**, a path *through* the skills rather than a single skill. When you name your situation, the router places you at a step on a flow. That is a different answer from "here is the skill that matches your keywords". There are six kinds of route, and the skill itself describes them in full:
 
 - **The main flow**, idea to ship. Grill, spec, tickets, implement (one ticket at a time, or the whole task graph in parallel with [implement-spec](https://aihero.dev/skills-implement-spec)), review, then [retro](https://aihero.dev/skills-retro), which feeds what the build taught back into the agent's environment. It has two branches. One is a prototype detour, for when a question needs runnable code to settle it. The other is the spec-and-tickets split, which is only worth its cost when the build spans more than one session.
 - **On-ramps**, for a situation that generates work and then merges onto the main flow: incoming bug reports, something broken, or an effort too foggy and too large to hold in one session.
 - **Codebase health**, periodic diagnostics with separate jobs: measure maintenance risk, inspect module shape, audit test confidence, or reconcile repository truth.
+- **Decision enforcement**, after architecture is settled and recorded: `/architecture-guardrails` turns one exact relationship into a local and CI check. The router can recommend this user-invoked skill, but no skill starts it automatically.
 - **Standalones**, which sit off every flow and which you use on their own: the prototype, the questionnaire, the research run.
 - **A vocabulary layer underneath**, the two references the other skills pull in when the words rather than the process are the problem.
 

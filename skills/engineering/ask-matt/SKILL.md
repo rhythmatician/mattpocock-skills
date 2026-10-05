@@ -64,6 +64,9 @@ Not feature work, just upkeep.
 - **`/test-suite-health`** audits the safety net itself when the question is whether tests deserve confidence: escaped defects despite high coverage, flakes or order dependence, pathological runtime, configuration interactions, failure containment, or readiness for a risky refactor. It measures before interpreting and keeps mutation optional and targeted. Use `/tdd` instead when writing tests for one new behavior.
 - **`/preserve-futures`** is a periodic checkpoint after a bounded region of work completes. It looks for concrete optionality loss and future-sensitive evidence, then reports planning consequences to `/wayfinder` rather than changing the roadmap or repairing code itself.
 
+## Settled architecture → executable guardrail
+
+After an architectural invariant is accepted and recorded in a durable authority, **`/architecture-guardrails`** turns its exact permitted, forbidden, or required relationship into enforcement that runs locally and in CI. It is user-invoked only: recommend the command and stop. Never invoke it automatically from architecture review, refactoring, health findings, dependency exploration, or a provisional preference. Use `/improve-codebase-architecture` while the shape is still being chosen, and `/knowledge-hygiene` while the current authority is unclear.
 
 ## Vocabulary underneath
 
