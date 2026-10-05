@@ -1,0 +1,5 @@
+interface:
+  display_name: "Codebase Health"
+  short_description: "Prioritize repository health risks"
+policy:
+  allow_implicit_invocation: false
