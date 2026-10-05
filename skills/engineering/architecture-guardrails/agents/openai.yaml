@@ -1,0 +1,5 @@
+interface:
+  display_name: "Architecture Guardrails"
+  short_description: "Enforce settled architecture decisions"
+policy:
+  allow_implicit_invocation: false
