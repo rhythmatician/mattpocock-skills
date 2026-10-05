@@ -89,6 +89,19 @@ Carry Graphify's evidence packet into the ticket resolution, then apply Wayfinde
 
 Only when the user asks, or the map's **Notes** explicitly require decision ingestion, invoke Graphify's Wayfinder decision-ingestion branch after recording a resolution.
 
+## Visualize the map
+
+When the user invokes `/wayfinder graph`, or asks to see the topology of a GitHub-backed map, run `scripts/wayfinder_graph.py` relative to this `SKILL.md`. The helper rebuilds a disposable view from GitHub's native sub-issue and dependency relationships every run; GitHub remains the planning truth, and generated output is never hand-maintained.
+
+Run `python <wayfinder-skill-dir>/scripts/wayfinder_graph.py --help` for the complete interface. From a clone of the target repository, the usual commands are:
+
+```text
+python <wayfinder-skill-dir>/scripts/wayfinder_graph.py
+python <wayfinder-skill-dir>/scripts/wayfinder_graph.py --map 123 --format graphml --output wayfinder.graphml
+```
+
+The default Mermaid output goes to stdout for pasting into Markdown. Use GraphML for hierarchical layout and interactive exploration in yEd. Prefer on-demand output; a requested file is a generated snapshot, not a checked-in plan. Report warnings about outside-map blockers and stop on ambiguous map discovery, inaccessible relationship data, or dependency cycles rather than presenting an untrustworthy DAG.
+
 ## Fog of war
 
 The map is _deliberately_ incomplete: don't chart what you can't yet see. Beyond the live tickets lies the **fog of war**: the dim view of decisions and investigations you can tell are coming but can't yet pin down, because they hang on questions still open. Resolving a ticket clears the fog ahead of it, graduating whatever's now specifiable into fresh tickets, one at a time, until the way to the destination is clear and no tickets remain.
@@ -126,7 +139,11 @@ Wayfinder does not perform the analysis itself. `/preserve-futures` owns the che
 
 ## Invocation
 
-Two modes. Either way, **never resolve more than one ticket per session**, with the exception of research tickets.
+Three modes. Charting and working **never resolve more than one ticket per session** — with the exception of research tickets. Graphing is read-only.
+
+### Graph the map
+
+User invokes with `graph`, optionally naming a map issue and output format. Run [Visualize the map](#visualize-the-map), return the generated view and diagnostics, then stop. Do not copy relationships into another source or edit GitHub from graph mode.
 
 ### Chart the map
 
