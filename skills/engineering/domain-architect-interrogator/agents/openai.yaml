@@ -1,0 +1,5 @@
+interface:
+  display_name: "Domain Architect Interrogator"
+  short_description: "Senior-architect interrogation of a product design, held strictly at the domain level"
+policy:
+  allow_implicit_invocation: false
