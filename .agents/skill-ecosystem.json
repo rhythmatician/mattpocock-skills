@@ -1,6 +1,7 @@
 {
   "version": "1",
   "nodes": [
+    { "name": "show-me", "invocation": "user-only" },
     { "name": "maintenance-risk", "invocation": "model-invoked" },
     { "name": "test-suite-health", "invocation": "model-invoked" },
     { "name": "knowledge-hygiene", "invocation": "model-invoked" },
