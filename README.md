@@ -275,3 +275,4 @@ General workflow tools, not code-specific.
 
 - **[grilling](./skills/productivity/grilling/SKILL.md)**: Interview the user relentlessly about a plan, decision, or idea until every branch of the design tree is resolved. The reusable interview primitive behind `grill-me`, `grill-with-docs`, `triage`, `wayfinder` and `improve-codebase-architecture`, with technical depth kept on a leash so rounds stop drifting over the user's head.
 - **[writing-for-agents](./skills/productivity/writing-for-agents/SKILL.md)**: Writing documents for agents: skills, AGENTS.md/CLAUDE.md, and any doc an agent reaches by a pointer.
+- **[writing-sops](./skills/productivity/writing-sops/SKILL.md)**: Create or revise practical staff procedures, with task steps, completion checks, and relevant exceptions.

@@ -1,146 +1,69 @@
-# SOP Writer - Standard Operating Procedure Generator
-
-## Overview
-
-Documents "how we do things" so processes don't live in one person's head. If someone is on vacation and work stops, you need an SOP.
-
+---
+name: writing-sops
+description: Create or revise practical standard operating procedures for staff, including software operation, office processes, and handoffs. Use when documenting a repeatable task or updating an SOP after a workflow changes.
 ---
 
-## 1. When to Apply
+# Writing SOPs
 
-| Trigger | Behavior |
-|---------|----------|
-| Repetitive task needs documenting | Full SOP creation |
-| "SOP", "process document" | Interactive SOP builder |
-| New team member asks "how do I..." | SOP generation prompt |
+Write a procedure the intended employee can follow during real work. Choose topics and detail by what helps that person complete the task, recognize an exception, and verify the result.
 
----
+For JGI work, read [references/jgi.md](references/jgi.md) before choosing scope or examples. It defines the local boundary between SOPs and calibration Work Procedures.
 
-## 2. SOP Template
+## Establish the task
+
+Identify the reader, the event that starts the task, and the result that means it is finished. Reuse the conversation and available materials before asking questions.
+
+Read existing instructions, forms, screenshots, and relevant application documentation. For software, establish which released workflow the reader actually uses. Code and planned features can explain intent, but instructions need evidence of the operator's current experience.
+
+Ask focused questions about missing decisions, exceptions, and handoffs. Confirm consequential gaps rather than inventing button names, business rules, contacts, or recovery actions. Keep unresolved questions beside the draft for the requester; do not bury guesses in executable steps.
+
+This stage is complete when the normal path and important exceptions are understood well enough to draft, with remaining gaps identified.
+
+## Draft for use at the workstation
+
+Honor the requested format and destination. Reuse a useful existing layout; otherwise start with this outline and omit sections that add no value.
 
 ```markdown
-# SOP: [Process Name]
+# [Task name]
 
-| Field | Value |
-|-------|-------|
-| **Version** | 1.0 |
-| **Last Updated** | YYYY-MM-DD |
-| **Owner** | [Name/Role] |
-| **Frequency** | [Daily/Weekly/Monthly/As needed] |
-| **Estimated Time** | [N] minutes |
+[Who this is for, when to use it, and what it accomplishes.]
 
----
+## Before you start
 
-## Purpose
-[1-2 sentences: why this process exists and what it achieves]
+[Required access, equipment, documents, and identifying information.]
 
-## Scope
-- **Applies to**: [Who performs this]
-- **When**: [What triggers this process]
-- **Not covered**: [What this SOP doesn't address]
+## Do the task
 
-## Prerequisites
-- [ ] [Access/tool/permission needed]
-- [ ] [Knowledge/training required]
+1. [Action using the labels or terms the reader sees.]
+   [Expected result or check where it matters.]
+2. [Next action.]
+   [Decision or handoff at the point it arises.]
 
----
+## Check that you are finished
 
-## Procedure
+[Observable evidence that the work succeeded, including any handoff.]
 
-### Step 1: [Action Name]
-**Who**: [Role]
-**How**:
-1. [Specific action with exact details]
-2. [Include screenshots/links where helpful]
-3. [Include expected result]
+## If something goes wrong
 
-> ⚠️ **Caution**: [Common mistake to avoid]
-
-### Step 2: [Action Name]
-**Who**: [Role]
-**How**:
-1. [Specific action]
-2. [Specific action]
-
-**Decision Point:**
-- If [condition A] → Go to Step 3
-- If [condition B] → Go to Step 4
-- If [unclear] → Escalate to [person/role]
-
-### Step 3: [Action Name]
-...
-
----
-
-## Checklist Summary
-- [ ] Step 1: [Brief description]
-- [ ] Step 2: [Brief description]
-- [ ] Step 3: [Brief description]
-- [ ] Final verification: [What to check]
-
-## Troubleshooting
-
-| Problem | Likely Cause | Solution |
-|---------|-------------|----------|
-| [Problem 1] | [Cause] | [Fix] |
-| [Problem 2] | [Cause] | [Fix] |
-
-## Escalation
-- **Level 1**: [Person/Role] — [contact method]
-- **Level 2**: [Person/Role] — [contact method]
-
-## Revision History
-| Date | Version | Change | Author |
-|------|---------|--------|--------|
-| YYYY-MM-DD | 1.0 | Initial creation | [Name] |
+| What you see | What to do next |
+| --- | --- |
+| [Recognizable symptom] | [Supported recovery, or where to get help] |
 ```
 
----
+- Give each step one main action. Put checks and warnings beside the action they affect.
+- Use the reader's vocabulary and exact visible labels. Include screenshots when they resolve ambiguity; prefer labels over colors or screen coordinates.
+- Explain branches where they occur. Make record identity, responsibility changes, and completion checks explicit where a mistake would affect another job or person.
+- Cover exceptions suggested by the real workflow. For tasks with external effects, distinguish failed, partly completed, and uncertain outcomes before recommending a retry.
+- Keep implementation details out of staff instructions unless the reader needs them to act. Troubleshooting should start with what the reader sees.
+- Add a quick checklist only when it helps repeat users, and keep it consistent with the full instructions.
+- Use dates, software versions, or a maintenance contact when they help someone recognize stale guidance. Formal approvals, document numbers, revision tables, and audit language belong only where the user or an applicable process requires them.
 
-## 3. Common Startup SOPs
+## Check usefulness and deliver
 
-| SOP | Frequency | Priority |
-|-----|-----------|----------|
-| **Production deployment** | Per release | ★★★ |
-| **Incident response** | As needed | ★★★ |
-| **Customer onboarding** | Per customer | ★★★ |
-| **Bug triage** | Daily | ★★☆ |
-| **Sprint ceremonies** | Bi-weekly | ★★☆ |
-| **Expense reporting** | Monthly | ★☆☆ |
-| **New vendor setup** | As needed | ★☆☆ |
+Walk through the normal path and relevant exceptions against the supplied evidence. Check that instructions cover starting, choosing the correct job or record, completing the work, and recognizing success or a need for help.
 
----
+When a walkthrough by an intended reader is available, use their hesitations and questions to revise the draft. Otherwise deliver the draft with the specific checks still needed; do not claim a staff walkthrough occurred. Testing a procedure does not itself authorize purchases, uploads, or business-record changes.
 
-## 4. Writing Tips
+Keep proposed process improvements separate from instructions for current practice. When updating an SOP, check affected screenshots, branches, and any summary checklist together.
 
-1. **Write for the new hire**: Assume zero context
-2. **Be specific**: "Click the blue Submit button" not "Submit the form"
-3. **One action per step**: Don't combine multiple actions
-4. **Include decision points**: What if something goes wrong?
-5. **Add screenshots**: For complex UIs or dashboards
-6. **Test it**: Have someone else follow it without help
-
----
-
-## 5. Tool Coordination
-
-| Tool | Purpose |
-|------|---------|
-| **Write** | Generate SOP documents |
-| **Read** | Reference existing processes |
-
----
-
-## 6. Boundaries
-
-**Will:**
-- Generate structured SOP documents with checklists
-- Include troubleshooting and escalation sections
-- Provide templates for common startup processes
-- Follow consistent formatting across SOPs
-
-**Will Not:**
-- Observe actual processes (you describe, AI documents)
-- Automate the processes themselves
-- Replace training (SOPs supplement, not replace)
-- Guarantee process compliance
+Deliver the procedure and a brief account of remaining questions or verification limits. Success means the reader can complete the task and handle the covered exceptions without relying on unwritten explanations.
