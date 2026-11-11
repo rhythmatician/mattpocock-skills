@@ -9,7 +9,7 @@ Three-axis review of the diff between `HEAD` and a fixed point the user supplies
 - **Spec**: does the code faithfully implement the originating issue / spec?
 - **Health Regression**: did the change make the repository materially harder to maintain, verify, or reason about?
 
-Run all available axes as **parallel sub-agents** with separate contexts. Give them the same pinned diff and commit list, and do not share sibling conclusions before every axis returns. Prefer the latest GPT Luna model for each sub-agent.
+Run all available axes as **parallel sub-agents** with separate contexts. Give them the same pinned diff and commit list, and do not share sibling conclusions before every axis returns.
 
 The issue tracker should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
 
@@ -86,7 +86,7 @@ For a small docs-only or similarly low-risk diff, direct inspection may exhaust 
 
 ### 5. Spawn the sub-agents in parallel
 
-Issue both sub-agent calls together, in the foreground, and aggregate the reports they return.
+Issue all applicable sub-agent calls together, in the foreground, and aggregate the reports they return. On Codex, pass `model: "gpt-6-luna"` explicitly in each `spawn_agent` call. If the user requests a different review model, pass that model instead.
 
 **Standards sub-agent prompt** should include:
 
