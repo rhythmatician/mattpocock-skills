@@ -10,6 +10,7 @@ Three-axis review of the diff between `HEAD` and a fixed point the user supplies
 - **Health Regression**: did the change make the repository materially harder to maintain, verify, or reason about?
 
 Run all available axes as **parallel sub-agents** with separate contexts. Give them the same pinned diff and commit list, and do not share sibling conclusions before every axis returns.
+Start every sub-agent with a fresh context window.
 
 The issue tracker should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
 

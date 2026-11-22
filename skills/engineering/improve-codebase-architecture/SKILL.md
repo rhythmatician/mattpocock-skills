@@ -33,7 +33,7 @@ Health-lens mode is complete when every returned candidate is grounded, every re
 - If the user named a direction (a module, a subsystem, a pain point), take it, and skip the inference below.
 - Otherwise, walk back a good stretch of the commit history (`git log --oneline`) to find the codebase's hot spots, the files and areas that keep coming up, and let those paths pull your attention first. If the changes are scattered with no clear hot spot, widen the net.
 
-Read the project's domain glossary (`GLOSSARY.md`) and any ADRs in the area you're touching first. Then spawn a sub-agent to walk the codebase. For each area it investigates, require a traced model of:
+Read the project's domain glossary (`GLOSSARY.md`) and any ADRs in the area you're touching first. Then spawn a sub-agent with a fresh context window to walk the codebase. For each area it investigates, require a traced model of:
 
 - the trigger or input and the callers that initiate the flow;
 - the call, data, and state path through the relevant modules;
