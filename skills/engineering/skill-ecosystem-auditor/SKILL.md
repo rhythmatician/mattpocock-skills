@@ -17,7 +17,7 @@ Record:
 - available prompt corpora, runtime traces, workload frequencies, and prior audit artifacts;
 - mutation authority. Keep the audit read-only unless the user explicitly requests changes.
 
-Retain ownership of the coordinated ecosystem outcome. Delegate isolated evidence collection where useful, then synthesize system-level selection, host-view, ownership, and composition findings here.
+Retain ownership of the coordinated ecosystem outcome. Delegate isolated evidence collection where useful. Start each subagent with a fresh context window. In Codex, pass `fork_turns: "none"` in each `spawn_agent` call. Synthesize system-level selection, host-view, ownership, and composition findings here.
 
 The source migration remains open until [the post-merge checklist](references/migration.md) is complete. Do not treat the old repository as deprecated before the canonical PR merges.
 

@@ -159,7 +159,7 @@ Load files from `graphify-out/.graphify_uncached.txt`. Split into chunks of 20-2
 
 When subagents are available, dispatch as many chunks concurrently as the host limit allows, wait for that batch, then reuse the available slots for later chunks.
 
-Build each task by wrapping the extraction prompt in task-delegation framing:
+Start each extraction subagent with a fresh context window. In Codex, pass `fork_turns: "none"` in each `spawn_agent` call. Wrap the extraction prompt in this task message:
 
 ```
 Use the host's subagent tool with this message:

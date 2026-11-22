@@ -87,7 +87,7 @@ For a small docs-only or similarly low-risk diff, direct inspection may exhaust 
 
 ### 5. Spawn the sub-agents in parallel
 
-Issue all applicable sub-agent calls together, in the foreground, and aggregate the reports they return. On Codex, pass `model: "gpt-6-luna"` explicitly in each `spawn_agent` call. If the user requests a different review model, pass that model instead.
+Issue all applicable sub-agent calls together, in the foreground, and aggregate the reports they return. In Codex, pass `fork_turns: "none"` and `model: "gpt-6-luna"` explicitly in each `spawn_agent` call. If the user requests a different review model, pass that model instead.
 
 **Standards sub-agent prompt** should include:
 

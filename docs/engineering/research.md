@@ -22,7 +22,7 @@ The line between `research` and `grill-with-docs` is the **shelf life of what co
 
 ## Delegated legwork
 
-The reading runs as a **background agent**. You keep working while it follows each claim to its primary source, writes one Markdown file, and reports back. Research is legwork you delegate, not thinking you outsource. You get a document to grill, plan, or design against, and you still make the decision.
+The reading runs as a **background agent** in a fresh [context window](https://www.aihero.dev/ai-coding-dictionary/context-window). In Codex, it starts with the research brief and no parent conversation. You keep working while it follows each claim to its primary source, writes one Markdown file, and reports back. Research is legwork you delegate, not thinking you outsource. You get a document to grill, plan, or design against, and you still make the decision.
 
 Nothing stops the background agent from spawning another background agent of its own. This is the skill's best-documented problem.
 
