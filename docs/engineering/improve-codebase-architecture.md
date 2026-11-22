@@ -92,7 +92,7 @@ Rarely, so know that before you start. The skill exists to output findings, so i
 
 **Does it work in Codex or another harness?**
 
-Yes. The exploration step asks the current [harness](https://www.aihero.dev/ai-coding-dictionary/harness) to dispatch a subagent without naming one vendor's tool or agent type. The report format and grounding criteria are the same across harnesses; the exact dispatch mechanism can differ.
+Yes. The current [harness](https://www.aihero.dev/ai-coding-dictionary/harness) starts the exploration subagent in a fresh context window. Codex gives the explorer its own brief without inheriting the parent conversation. The report format and grounding criteria are the same across harnesses.
 
 **How do I actually implement deep modules in TypeScript?**
 
