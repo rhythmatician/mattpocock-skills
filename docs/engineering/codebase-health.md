@@ -21,7 +21,7 @@ Use the focused skill when you already know which diagnostic question you are as
 
 ## Independent lenses, lead judgment
 
-The five lenses start from the same intent and snapshot in separate [subagent](https://www.aihero.dev/ai-coding-dictionary/subagent) contexts. They do not see sibling conclusions before returning, so agreement is independent signal and disagreement cannot be quietly averaged away.
+The five lenses start from the same intent and snapshot in fresh [subagent](https://www.aihero.dev/ai-coding-dictionary/subagent) contexts. In Codex, they get the evidence brief without the lead agent's conversation. They do not see sibling conclusions before returning, so agreement is independent signal and disagreement cannot be quietly averaged away.
 
 Each lens returns structured evidence: locations, measurements or source observations, interpretation, confidence boundaries, the next action, and ephemeral artifact references. The lead then classifies concerns as **Prioritize**, **Investigate**, **Watch**, or **Clear**. That classification is contextual judgment, not a vote. A lone reproduced failure can beat several weak static suspicions; a complex but stable, cohesive, well-tested module can be cleared.
 

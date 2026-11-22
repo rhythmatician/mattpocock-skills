@@ -18,6 +18,8 @@ Type `/skill-ecosystem-auditor`, or the [agent](https://www.aihero.dev/ai-coding
 
 ## Two evidence layers
 
+When the audit delegates evidence collection in Codex, each [subagent](https://www.aihero.dev/ai-coding-dictionary/subagent) starts with the evidence brief in a fresh [context window](https://www.aihero.dev/ai-coding-dictionary/context-window).
+
 The cheap layer finds facts a deterministic check can establish: malformed frontmatter, duplicate names, broken package references, mismatched user-only metadata, unresolved declared children, invalid schemas, and obvious unbounded composition cycles.
 
 The deep layer owns judgments that need context or observation:

@@ -14,7 +14,7 @@ Reach for it when an existing graph can answer an architecture or relationship q
 
 Graphify makes broad relationships navigable without asking you to trust a black box. It distinguishes extracted facts, supported inferences, and ambiguity so a graph answer can still be traced back to its source material.
 
-For an ordinary question, it reuses an existing graph read-only. Building or changing a graph is an explicit persistence decision.
+For an ordinary question, it reuses an existing graph read-only. Building or changing a graph is an explicit persistence decision. When a build delegates extraction in Codex, each [subagent](https://www.aihero.dev/ai-coding-dictionary/subagent) starts with its own extraction brief and file list.
 
 ## Common questions
 

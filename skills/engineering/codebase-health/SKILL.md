@@ -43,7 +43,9 @@ If the worktree changes after dispatch, finish the current children against thei
 
 ## 3. Dispatch five independent lenses
 
-Call the Skill tool in five isolated, read-only subagents, once for each child:
+Start five read-only subagents, each with a fresh context window. In Codex, pass `fork_turns: "none"` in each `spawn_agent` call.
+
+Have each child call the Skill tool for one assigned lens:
 
 - `maintenance-risk`
 - `improve-codebase-architecture`

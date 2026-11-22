@@ -61,7 +61,7 @@ Every ticket carries a `wayfinder:<type>` label. Each ticket is either **[HITL](
 
 `task` is the only type that *does* rather than decides. It belongs on the map only because it unblocks a decision, never because it delivers part of the destination. This type goes wrong most often in practice. Agents read it as an implementation step and start to write product code inside the map.
 
-Research is the only exception to *one ticket per session*.
+Research is the only exception to *one ticket per session*. Each research subagent still starts with a fresh [context window](https://www.aihero.dev/ai-coding-dictionary/context-window). Codex hands it the ticket without the charting conversation.
 
 ## Common questions
 
