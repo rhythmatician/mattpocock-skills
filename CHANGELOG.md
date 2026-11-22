@@ -1,5 +1,69 @@
 # mattpocock-skills
 
+## 1.4.0
+
+### Minor Changes
+
+- [`9af58b9`](https://github.com/mattpocock/skills/commit/9af58b97430d9f1bd6120656b88be7ebf312e357) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add `architecture-guardrails`, a user-invoked engineering skill that turns settled, durably recorded architectural invariants into executable dependency or boundary enforcement. It selects the strongest mature mechanism the target ecosystem supports, integrates it with existing local and CI verification, proves allowed and representative forbidden cases, and retires safely superseded instruction prose.
+
+- [`b5659eb`](https://github.com/mattpocock/skills/commit/b5659eb2b406df7cd2e7ef8d224e01cfa1eee0c6) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Enhance `improve-codebase-architecture` with module-secret and qualitative connascence lenses, grounding before critique, caller-first alternatives, a cohesion gate, implementation-friction feedback, stable candidate fields, and precise ecosystem handoffs.
+
+- [`66f0881`](https://github.com/mattpocock/skills/commit/66f088122bb07dd037c4cca2aaa47708eff3b70e) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add HumanLayer's user-invoked show-me skill for concise diagrams, code-shape sketches, and focused HTML artifacts. Preserve explicit-only invocation in Claude Code and Codex, include the upstream MIT notice and pinned attribution, and use host preview tools to open HTML.
+
+- [`e0f9600`](https://github.com/mattpocock/skills/commit/e0f96000027fb4adaa040036591a66b19c657bff) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add a diff-scoped Health Regression axis to code-review alongside Standards and Spec.
+
+- [`a97de25`](https://github.com/mattpocock/skills/commit/a97de2540f5a240bbe1d59d65bc6a67eabd0f9a5) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add `codebase-health`, a user-invoked orchestrator that runs five repository-health lenses independently against one snapshot, reuses normalized evidence, preserves disagreement, applies lead judgment, and hands focused follow-up to the owning workflow. `improve-codebase-architecture` and `knowledge-hygiene` gain bounded, read-only child modes so the orchestrator can call them without duplicating their diagnostic methods; their full direct flows remain user-controlled.
+
+- [`659b7f3`](https://github.com/mattpocock/skills/commit/659b7f31194b072cf1370000f1cb2fea1ecf000c) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add `domain-architect-interrogator`: a user-invoked requirements-elicitation session where the user plays domain expert and the agent plays senior architect. It holds the conversation strictly at the domain level (sea-level goals, ubiquitous language, context-free boundary stress tests, exception interrogation) and redirects implementation mechanics on sight, closing the "Scripter Trap" where a deeply technical domain expert pulls the model into code talk. Ends with a black-box behavioral contract that feeds `/to-spec`.
+
+  Also add a technical-depth guardrail to `grilling`: frontier questions may be technical, but depth must serve the current decision rather than spawn implementation sub-branches, and recommendations are stated as accept/reject decisions instead of topics to explore. Every consumer of the primitive (`grill-with-docs`, `wayfinder`, `triage`, `improve-codebase-architecture`) inherits the guardrail, so interview rounds stop drifting one level more technical than the last.
+
+- [`659b7f3`](https://github.com/mattpocock/skills/commit/659b7f31194b072cf1370000f1cb2fea1ecf000c) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Split `domain-architect-interrogator` in two. The portable half becomes `domain-voice`, a new model-invoked skill that holds any conversation at the domain level: the Scripter Trap redirect protocol, one-concept-one-name ubiquitous-language enforcement, and a plain-words register so questions land on the first read. The interrogator keeps its five-phase elicitation loop and now runs on `domain-voice` instead of carrying its own copy of the discipline.
+
+  `grilling` gains a lever: where the whole interview should be held at the domain level, it calls `domain-voice` before the first round instead of only warning about technical drift. `wayfinder` maps can pin the domain-level discipline in their Notes, so every ticket session inherits it automatically. Sessions that want `/wayfinder` or `/grilling` to stay less technical and easier to follow get it without leaving the flow.
+
+- [`f01cc27`](https://github.com/mattpocock/skills/commit/f01cc27ab7a3d642a79d56affabba6fe42ad56fb) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add `feedback-loop-health`, a model-invoked skill and TypeScript measurement harness for diagnosing end-to-end time to trustworthy engineering feedback across machine checks, observable runtime state, manual setup, and human verdicts.
+
+- [`3d648f0`](https://github.com/mattpocock/skills/commit/3d648f0496169736745286eb32c4c127b869e82c) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add `knowledge-hygiene`, a review-only engineering skill that detects duplicate authority, stale repository knowledge, conflicting agent instructions, state leaked into durable docs, unclear supersession, and code/doc source-of-truth splits. It learns each repository's authority model, uses deterministic searches and existing Graphify graphs to generate candidates, and requires evidence before recommending consolidation or structural enforcement.
+
+  Three corrections from Voxygen trial:
+
+  1. **True duplicate authority vs. authority-shaped debt** — "Looks current/binding" is no longer sufficient. Confirmed duplicate authority requires two independently maintained locations empowered by the repository's authority model to define the same current truth. Current-sounding legacy/unadmitted prose is classified as authority-shaped debt.
+  2. **Proposition, not ancestry, for supersession** — A current contract is not stale merely because a rule originated under a superseded ADR. The skill compares the actual proposition against the successor/current authority.
+  3. **No synchronization debt as remediation** — Derived/explanatory artifacts with clear deference normally need no change or one stable source pointer. Per-entry or line-number backlinks are discouraged unless granular provenance solves a demonstrated ambiguity with generation/validation.
+  4. **Findings capped at the minimum claim** — The skill distinguishes misleading status metadata, artifact overlap, and incompatible current authority. A discoverable supersession relation prevents the last grade even when stale status metadata still requires repair.
+  5. **Remediation preserves artifact class semantics** — An artifact is not moved into a category (external reference, historical record, etc.) whose admission contract its content does not satisfy.
+
+- [`df1a2e8`](https://github.com/mattpocock/skills/commit/df1a2e8073436898cb08753f625b1a934276aaea) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add `maintenance-risk`, a model-invoked empirical repository-risk diagnostic. It runs bounded Git and Omen analysis, reuses existing Graphify output, preserves per-phase provenance and evidence strength, and emits structured findings for codebase-health orchestration.
+
+- [`2be336e`](https://github.com/mattpocock/skills/commit/2be336eae004098cdff7fdff3d45ee7769b6be0f) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add `skill-ecosystem-auditor`, a model-invoked audit of multi-skill selection, ownership, composition, host behavior, lifecycle safety, and empirical activation.
+
+  The port preserves the original auditor's schemas, host profiles, quantitative rubric, evidence classes, and evaluation corpus while replacing its Python tooling with shared TypeScript frontmatter, inventory, reference, token, integrity, and activation-evaluation capabilities. A fast `skill-ecosystem:check` command catches deterministic ecosystem drift without presenting static validation as runtime certification. A repository manifest records current and conditional health, review, and architecture relationships. A host-neutral cooperating-skill fixture exercises router, specialist, shared-principle, and project-local verification relationships adapted from pstack, and a three-baseline evaluation exercise reports activation, co-activation, and order.
+
+- [`53e50d1`](https://github.com/mattpocock/skills/commit/53e50d15808f8c7c657c5f3c2c488ead41dddff5) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Add `test-suite-health`, a model-invoked audit of whether an existing test suite deserves confidence.
+
+  The skill runs cheap deterministic diagnostics before focused state, order, configuration, and failure-containment experiments. Mutation testing stays optional and targets high-risk files, modules, or functions through established ecosystem tools. Shared TypeScript orchestration normalizes tool discovery, per-test assertionless candidates, configuration axes, failure-path signals, source-to-test evolutionary mismatch, repeated run outcomes, timing, test reports, and mutation reports without running expensive analysis by default.
+
+### Patch Changes
+
+- [#1363](https://github.com/mattpocock/skills/pull/1363) [`5ae4816`](https://github.com/mattpocock/skills/commit/5ae481693d13b37d4d2c2c92d0b66d299c93e695) Thanks [@mattpocock](https://github.com/mattpocock)! - `chief-of-staff` now looks for a shared wiki before starting its own. It also runs `retro` on about one in five of its subagents' sessions, the ones where something went wrong first, and acts on the findings itself, and runs `to-spec`, `to-tickets` and `implement-spec` for large chunks of work, reading each skill by relative path so they can stay user-invoked.
+
+- [#1342](https://github.com/mattpocock/skills/pull/1342) [`a496f55`](https://github.com/mattpocock/skills/commit/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa) Thanks [@mattpocock](https://github.com/mattpocock)! - `implement-spec` now uses a fresh implementer subagent for each ticket and for the code-review fixes, instead of reusing an earlier implementer.
+
+- [`866e89e`](https://github.com/mattpocock/skills/commit/866e89ee9467e580689bc1339db759fc56d5c2ac) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Tailor writing-sops for practical staff task guides, add JGI context separating SOPs from calibration WPs, and register the skill in the plugin, catalogs, router, and docs.
+
+- [`2be336e`](https://github.com/mattpocock/skills/commit/2be336eae004098cdff7fdff3d45ee7769b6be0f) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Finish the glossary rename in architecture instructions, related docs, and skill inventory discovery. Remove the duplicated codebase health route from the router docs.
+
+- [`a97de25`](https://github.com/mattpocock/skills/commit/a97de2540f5a240bbe1d59d65bc6a67eabd0f9a5) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Repair health-skill invocation metadata and align content-contract tests with behavior-preserving wording changes from PR [#27](https://github.com/mattpocock/skills/issues/27). Restore the rule that test-suite-health adds parsers only for a real tool and consumer.
+
+- [`17b62e4`](https://github.com/mattpocock/skills/commit/17b62e4a436cec7dd17dfc07054f082392b99bc8) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Restore the repository-analysis Node wrapper omitted from PR [#27](https://github.com/mattpocock/skills/issues/27). The wrapper checks `os.userInfo()` before loading `tsx`, reports the operating-system failure directly, and preserves the child runner's exit code. Package-script dependency coverage and Windows and Ubuntu CI now catch missing helpers.
+
+- [#1453](https://github.com/mattpocock/skills/pull/1453) [`9201b96`](https://github.com/mattpocock/skills/commit/9201b96da4af2d663faa13bef984095bb69059b1) Thanks [@mattpocock](https://github.com/mattpocock)! - `software-factory` now installs with `npx skills add`: its description is quoted, so strict YAML parsers no longer read the colon in it as a nested mapping and skip the skill.
+
+- [#1316](https://github.com/mattpocock/skills/pull/1316) [`4ae2317`](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d) Thanks [@mattpocock](https://github.com/mattpocock)! - Add `software-factory`, an in-progress user-invoked reference skill: a glossary for designing a software factory (tasks, runs, runners, triggers, and the services they plug into), example tasks grouped by the problem they solve, surveys of the products that fill each slot (ticket trackers, git hosts, runners, observability platforms), and the questions that finish a design. Call it alongside a grilling session.
+
+- [`53e50d1`](https://github.com/mattpocock/skills/commit/53e50d15808f8c7c657c5f3c2c488ead41dddff5) Thanks [@rhythmatician](https://github.com/rhythmatician)! - Harden `test-suite-health` experiment evidence with a version 2 plan and report contract, mechanical seed provenance, repository identity and bounded ignored-tree attribution, safe tool-version discovery, fresh-only per-repeat machine report snapshots across failures, and explicit capability gaps.
+
 ## 1.3.2
 
 ### Patch Changes
